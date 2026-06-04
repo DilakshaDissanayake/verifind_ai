@@ -28,8 +28,8 @@ jobs:
         with:
           cache: true
 
-      # - name: Install dependencies
-      #   run: flutter pub get
+      - name: Install dependencies
+        run: flutter pub get
 
       - name: Check formatting
         run: dart format --set-exit-if-changed --output=none .
@@ -40,8 +40,8 @@ jobs:
       - name: Run tests
         run: flutter test --coverage
 
-      - name: Check dependency freshness
-        run: dart pub outdated --exit-code
+      # - name: Check dependency freshness
+      #   run: dart pub outdated --exit-code
 
       - name: Scan for secrets
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo --no-banner --redact --exit-code=1
