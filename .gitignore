@@ -163,7 +163,6 @@ graphify-out/
 
 
 # ------------------------------------------------------------------------------
-# Personal / academic Word docs — keep local only
+# Personal / academic docs — keep local only (do not commit)
 # ------------------------------------------------------------------------------
-*.doc
-*.docx
+docs/
