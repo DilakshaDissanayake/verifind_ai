@@ -1,0 +1,13 @@
+---
+description: Pytest and test conventions for VERIFIND
+globs: tests/**/*
+alwaysApply: false
+---
+
+# Tests
+
+- Prefer `pytest -q` / `-q --tb=line`; show failures only.
+- Cover core paths: sanitize→vault split, fusion thresholds, fraud gate, claim scoring.
+- Mock LLM/MCP at boundaries; do not call live providers in unit tests.
+- Target ≥80% on core pipelines/fraud before demo harden sprint.
+- No real secrets in fixtures; use `.env.example` shaped fakes.

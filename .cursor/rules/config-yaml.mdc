@@ -1,0 +1,13 @@
+---
+description: YAML model tiers fusion weights fraud thresholds
+globs: config/**/*.{yaml,yml}
+alwaysApply: false
+---
+
+# Config YAML
+
+- `param.yaml`: fusion α/β/γ/δ, geo radius, HIGH/MEDIUM thresholds, fraud velocity/lockout.
+- `models.yaml`: provider tiers for vision / verify / embed with ordered fallbacks.
+- Change thresholds in YAML — avoid hardcoding magic numbers in Python.
+- Document units (meters, seconds, Hamming distance) next to keys.
+- Keep demo defaults aligned with plan: geo ≤5 km, HIGH ≥0.80, claims ≤3/24h.

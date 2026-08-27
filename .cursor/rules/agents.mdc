@@ -1,0 +1,14 @@
+---
+description: LangGraph orchestrator, agents, state, routing
+globs: src/agents/**/*
+alwaysApply: false
+---
+
+# Agents (LangGraph)
+
+- Graph nodes: Supervisor/Router → Intake → Matchmaker → Verification.
+- Keep `AgentState` typed (TypedDict); pass only needed fields between nodes.
+- Tools call MCP servers / services — do not embed vision/blur/SQL inside agent prompts.
+- Route intents: `report_intake` | `match_refresh` | `claim_verify` only for MVP.
+- Fail soft: circuit-breaker / fallback via `llm_provider`; never crash the graph on one LLM error.
+- Do not add voice, CRM ticket, or RAG-chat agents (out of MVP).

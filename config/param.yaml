@@ -1,0 +1,73 @@
+# VERIFIND AI — runtime parameters (non-secret)
+# Secrets live in .env only.
+
+provider:
+  default: openai
+  tier: general
+  openrouter_base_url: https://openrouter.ai/api/v1
+
+llm:
+  temperature: 0.0
+  max_tokens: 2000
+  streaming: false
+
+embedding:
+  tier: small
+  batch_size: 100
+  show_progress: false
+  dim: 1536
+
+# Multimodal fusion weights (must sum to 1.0)
+fusion:
+  vision: 0.30
+  text: 0.30
+  geo: 0.25
+  category: 0.15
+
+match:
+  high_threshold: 0.80
+  medium_threshold: 0.50
+  geo_radius_m: 5000
+
+fraud:
+  claim_velocity_max: 3
+  claim_velocity_window_h: 24
+  fail_lockout_count: 3
+  fail_lockout_h: 24
+  risk_pass: 0.3
+  risk_review: 0.7
+  # aliases used by config.py FRAUD dict (same values)
+
+moderation:
+  # 3 prohibited post attempts → account auto-blocked; post never created
+  content_strike_limit: 3
+
+gps:
+  fuzz_meters: 500
+
+sanitization:
+  blur_sigma: 15
+
+phash:
+  hamming_flag_max: 5
+
+pipeline:
+  ai_budget_seconds: 8
+
+paths:
+  data_dir: data
+  logs_dir: logs
+  public_bucket: public-sanitized
+  vault_bucket: private-vault
+
+logging:
+  enabled: true
+  level: INFO
+  log_tokens: true
+  log_latency: true
+
+observability:
+  enabled: true
+
+arq:
+  worker_enabled: false

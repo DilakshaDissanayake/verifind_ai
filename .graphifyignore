@@ -1,0 +1,27 @@
+# Graphify-only ignore rules (merged with .gitignore; later patterns win).
+# Goal: keep Examples/ out of git, but INDEX it in the knowledge graph.
+
+# Re-include Examples for architecture reference (ZuuSwarm / medical-coice)
+!Examples/
+!Examples/**
+
+# Noise inside Examples — still skip
+Examples/**/.git/
+Examples/**/.git/**
+Examples/**/node_modules/
+Examples/**/__pycache__/
+Examples/**/*.pyc
+Examples/**/.venv/
+Examples/**/venv/
+Examples/**/ui/node_modules/
+Examples/**/ui/dist/
+Examples/**/ui/build/
+Examples/**/ui/package-lock.json
+Examples/**/ui/public/
+Examples/**/data/*.db
+Examples/**/data/*.json
+Examples/**/logs/
+Examples/**/*.log
+Examples/**/.pytest_cache/
+Examples/**/.mypy_cache/
+Examples/**/.ruff_cache/

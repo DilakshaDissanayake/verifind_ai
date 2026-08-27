@@ -1,0 +1,16 @@
+---
+description: VERIFIND dual AI pipelines and zero-fraud core
+globs: src/pipelines/**/*
+alwaysApply: false
+---
+
+# Pipelines (VERIFIND core)
+
+- Dual path: `asyncio.gather` vision ∥ text; fuse via `param.yaml` weights.
+- Default fusion: `0.30·Vision + 0.30·Text + 0.25·Geo + 0.15·Category`.
+- HIGH ≥ 0.80 · MEDIUM 0.50–0.79 · LOW < 0.50.
+- Sanitization: mask unique IDs → Gaussian blur (σ≈15) → write public bucket; original → private vault.
+- Metadata: EXIF + pHash (Hamming ≤ 5 near-dup) + HSV histogram.
+- Verification: adversarial Qs from vault features; score with stronger model; never leak answers to client.
+- Fraud: velocity ≤3 claims/24h; 3 fails → 24h lockout; risk → PASS / REVIEW / BLOCK.
+- Vision primary: `gpt-4o-mini`; verify primary: `gpt-4o`; embed: `text-embedding-3-small` (1536d).
