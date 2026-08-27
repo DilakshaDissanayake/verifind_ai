@@ -5,8 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../design/app_colors.dart';
-import '../../design/app_icons.dart';
 import '../../design/app_spacing.dart';
+import '../../widgets/vf_mark.dart';
 
 /// Branded launch screen — full-bleed white canvas, centered mark, then [onComplete].
 class SplashPage extends StatefulWidget {
@@ -153,27 +153,22 @@ class _SplashPageState extends State<SplashPage>
                         },
                         child:
                             Container(
-                                  width: 104,
-                                  height: 104,
+                                  width: 112,
+                                  height: 112,
                                   decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        AppColors.brand,
-                                        AppColors.brandDark,
-                                      ],
-                                    ),
+                                    color: Colors.white,
                                     borderRadius: BorderRadius.circular(
                                       AppRadius.xl,
                                     ),
+                                    border: Border.all(
+                                      color: AppColors.lightBorder,
+                                    ),
                                     boxShadow: AppShadows.brandGlow(),
                                   ),
-                                  alignment: Alignment.center,
-                                  child: const Icon(
-                                    AppIcons.shieldCheck,
-                                    color: Colors.white,
-                                    size: 50,
+                                  padding: const EdgeInsets.all(10),
+                                  child: Image.asset(
+                                    kVerifindLogoAsset,
+                                    fit: BoxFit.contain,
                                   ),
                                 )
                                 .animate()

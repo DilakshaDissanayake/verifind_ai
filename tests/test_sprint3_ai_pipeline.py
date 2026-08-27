@@ -102,8 +102,16 @@ class TestVisionPipeline:
             '"mask_boxes":[{"label":"serial_sticker","x":0.05,"y":0.8,"w":0.3,"h":0.1}],'
             '"confidence":0.88}'
         )
-        with patch("pipelines.vision_pipeline._call_openai_vision", new_callable=AsyncMock) as mock_call:
-            mock_call.return_value = mock_response
+        with patch(
+            "pipelines.vision_pipeline.chat_completions_with_failover",
+            new_callable=AsyncMock,
+        ) as mock_call:
+            mock_call.return_value = {
+                "content": mock_response,
+                "provider": "openai",
+                "model": "gpt-4o-mini",
+                "degraded": False,
+            }
             result = await run_vision_pipeline(b"fake_jpeg_bytes", report_id="r-001")
 
         assert result["category"] == "electronics"

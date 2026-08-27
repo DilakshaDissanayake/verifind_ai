@@ -109,6 +109,23 @@ class AuthCubit extends Cubit<AuthState> {
     }
   }
 
+  Future<String> forgotPassword(String email) async {
+    final data = await _api.forgotPassword(email);
+    return data['message'] as String? ??
+        'If that email is registered, a password reset link was sent';
+  }
+
+  Future<String> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final data = await _api.changePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+    );
+    return data['message'] as String? ?? 'Password updated';
+  }
+
   void logout() {
     _api.setToken(null);
     emit(AuthInitial());

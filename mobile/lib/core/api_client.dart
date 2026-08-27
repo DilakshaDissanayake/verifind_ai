@@ -127,6 +127,28 @@ class ApiClient {
     return Map<String, dynamic>.from(res.data as Map);
   }
 
+  Future<Map<String, dynamic>> forgotPassword(String email) async {
+    final res = await _dio.post(
+      '/api/v1/auth/forgot-password',
+      data: {'email': email},
+    );
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final res = await _dio.post(
+      '/api/v1/auth/change-password',
+      data: {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      },
+    );
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
   Future<Map<String, dynamic>> createReport(Map<String, dynamic> body) async {
     final res = await _dio.post('/api/v1/reports', data: body);
     return Map<String, dynamic>.from(res.data as Map);

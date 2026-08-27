@@ -10,6 +10,10 @@ from loguru import logger
 
 from api.deps import CurrentUser, get_current_user
 from api.schemas import (
+    ChangePasswordRequest,
+    ChangePasswordResponse,
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
     LoginRequest,
     LoginResponse,
     MeResponse,
@@ -65,9 +69,9 @@ async def register(body: RegisterRequest) -> RegisterResponse:
         )
 
     try:
-        from supabase import create_client
+        from infrastructure.supabase_auth import get_supabase_auth_client
 
-        client = create_client(settings.supabase_url, settings.supabase_anon_key)
+        client = get_supabase_auth_client()
         meta = {"display_name": display_name, "emergency_contact": emergency_contact}
         result = client.auth.sign_up(
             {
@@ -154,7 +158,7 @@ async def login(body: LoginRequest) -> LoginResponse:
     settings = get_settings()
     # AUTH_DEV_BYPASS always wins — local smoke without a real Supabase user.
     if settings.auth_dev_bypass:
-        logger.warning("AUTH_DEV_BYPASS for {}", body.email)
+        logger.debug("AUTH_DEV_BYPASS login for {}", body.email)
         return LoginResponse(
             access_token="dev-bypass-token",
             user_id=settings.auth_dev_user_id,
@@ -163,9 +167,9 @@ async def login(body: LoginRequest) -> LoginResponse:
             mode="dev_bypass",
         )
     try:
-        from supabase import create_client
+        from infrastructure.supabase_auth import get_supabase_auth_client
 
-        client = create_client(settings.supabase_url, settings.supabase_anon_key)
+        client = get_supabase_auth_client()
         result = client.auth.sign_in_with_password(
             {"email": body.email, "password": body.password}
         )
@@ -202,7 +206,13 @@ async def login(body: LoginRequest) -> LoginResponse:
     except HTTPException:
         raise
     except Exception as exc:
+        msg = str(exc).lower()
         logger.error("login failed: {}", exc)
+        if "timeout" in msg or "timed out" in msg:
+            raise HTTPException(
+                status_code=503,
+                detail="Auth service timed out — try again in a moment",
+            ) from exc
         raise HTTPException(status_code=401, detail="Login failed") from exc
 
 
@@ -213,13 +223,82 @@ async def resend_verification(body: ResendVerificationRequest) -> ResendVerifica
     if settings.auth_dev_bypass:
         return ResendVerificationResponse(message="Verification is bypassed in development")
     try:
-        from supabase import create_client
+        from infrastructure.supabase_auth import get_supabase_auth_client
 
-        client = create_client(settings.supabase_url, settings.supabase_anon_key)
+        client = get_supabase_auth_client()
         client.auth.resend({"type": "signup", "email": str(body.email).strip().lower()})
     except Exception as exc:
         logger.warning("verification resend failed: {}", exc)
     return ResendVerificationResponse()
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(body: ForgotPasswordRequest) -> ForgotPasswordResponse:
+    """Trigger Supabase password-recovery email (always return the same message)."""
+    settings = get_settings()
+    email = str(body.email).strip().lower()
+    if settings.auth_dev_bypass:
+        return ForgotPasswordResponse(
+            message="Password reset is bypassed in development — change password after login"
+        )
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        raise HTTPException(status_code=503, detail="Password reset unavailable")
+    try:
+        from infrastructure.supabase_auth import get_supabase_auth_client
+
+        client = get_supabase_auth_client()
+        redirect = (settings.auth_redirect_url or "").strip()
+        if redirect:
+            client.auth.reset_password_for_email(
+                email, {"redirect_to": redirect}
+            )
+        else:
+            client.auth.reset_password_for_email(email)
+    except Exception as exc:
+        # Do not reveal whether the email exists.
+        logger.warning("forgot-password failed for {}: {}", email, exc)
+    return ForgotPasswordResponse()
+
+
+@router.post("/change-password", response_model=ChangePasswordResponse)
+async def change_password(
+    body: ChangePasswordRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> ChangePasswordResponse:
+    """Logged-in user: verify current password, then set a new one via Supabase Auth."""
+    settings = get_settings()
+    if body.current_password == body.new_password:
+        raise HTTPException(
+            status_code=422,
+            detail="New password must be different from the current password",
+        )
+    if settings.auth_dev_bypass:
+        return ChangePasswordResponse(message="Password updated (dev bypass)")
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        raise HTTPException(status_code=503, detail="Password change unavailable")
+    if not user.email:
+        raise HTTPException(status_code=400, detail="Account email is required to change password")
+    try:
+        from infrastructure.supabase_auth import get_supabase_auth_client
+
+        client = get_supabase_auth_client()
+        signed = client.auth.sign_in_with_password(
+            {"email": user.email, "password": body.current_password}
+        )
+        if not signed.session or not signed.user:
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        client.auth.update_user({"password": body.new_password})
+        return ChangePasswordResponse()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "invalid" in msg or "credential" in msg or "401" in msg:
+            raise HTTPException(
+                status_code=401, detail="Current password is incorrect"
+            ) from exc
+        logger.error("change-password failed: {}", exc)
+        raise HTTPException(status_code=400, detail="Could not update password") from exc
 
 
 @router.get("/me", response_model=MeResponse)
@@ -235,6 +314,7 @@ async def me(user: CurrentUser = Depends(get_current_user)) -> MeResponse:
         email=summary.get("email") or user.email,
         display_name=summary.get("display_name"),
         role=summary.get("role") or user.role,
+        is_active=bool(summary.get("is_active", True)),
         lost_count=int(summary.get("lost_count") or 0),
         found_count=int(summary.get("found_count") or 0),
         active_chats=int(summary.get("active_chats") or 0),

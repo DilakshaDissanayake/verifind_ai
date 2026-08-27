@@ -1,4 +1,4 @@
-"""LangGraph orchestrator stub — no hard LLM dependency at import time."""
+"""LangGraph orchestrator — routes intents; LLM clients use multi-provider failover."""
 
 from __future__ import annotations
 
@@ -11,6 +11,12 @@ from agents.state import AgentState
 
 
 class AgentOrchestrator:
+    """Supervisor-style router. Heavy AI runs in Arq pipelines with circuit-breaker failover.
+
+    When OpenAI is unavailable, vision/verify agents automatically trigger the next
+    model in config/param.yaml → resilience.fallback_chain (OpenRouter Gemini/Claude → Ollama).
+    """
+
     def __init__(self) -> None:
         self.llm_router = None
         self.llm_vision = None
@@ -27,7 +33,7 @@ class AgentOrchestrator:
             self.llm_router = get_router_llm()
             self.llm_vision = get_vision_llm()
             self.llm_verify = get_verify_llm()
-            logger.info("LLM clients attached")
+            logger.info("LLM clients attached (failover via circuit breakers)")
         except Exception as exc:
             logger.warning("LLM init deferred: {}", exc)
 
@@ -43,7 +49,7 @@ class AgentOrchestrator:
 
 
 def build_agent() -> AgentOrchestrator:
-    logger.info("Building AgentOrchestrator (Sprint 1)")
+    logger.info("Building AgentOrchestrator")
     agent = AgentOrchestrator()
     # Soft-attach — missing keys must not block /health
     agent.attach_llms()

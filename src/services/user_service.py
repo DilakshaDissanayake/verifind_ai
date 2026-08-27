@@ -87,7 +87,7 @@ def get_profile_summary(user_id: UUID) -> dict:
         row = session.execute(
             text(
                 """
-                SELECT u.id, u.email, u.display_name, u.role,
+                SELECT u.id, u.email, u.display_name, u.role, u.is_active,
                        (SELECT COUNT(*) FROM reports r
                         WHERE r.user_id = u.id AND r.report_type = 'LOST') AS lost_count,
                        (SELECT COUNT(*) FROM reports r
@@ -109,6 +109,7 @@ def get_profile_summary(user_id: UUID) -> dict:
             "email": None,
             "display_name": None,
             "role": "user",
+            "is_active": True,
             "lost_count": 0,
             "found_count": 0,
             "active_chats": 0,

@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'design/app_colors.dart';
 import 'design/app_icons.dart';
+import 'design/app_spacing.dart';
 import 'design/app_theme.dart';
 import 'core/api_client.dart';
 import 'core/app_prefs.dart';
+import 'features/auth/account_status_cubit.dart';
 import 'features/auth/auth_cubit.dart';
 import 'features/auth/login_page.dart';
 import 'features/chat/chats_page.dart';
@@ -174,6 +177,7 @@ class _HomeShell extends StatefulWidget {
 class _HomeShellState extends State<_HomeShell> {
   int _tab = 0;
   Timer? _poll;
+  Timer? _accountPoll;
 
   static const _pages = [
     MyReportsPage(),
@@ -186,6 +190,7 @@ class _HomeShellState extends State<_HomeShell> {
   @override
   void dispose() {
     _poll?.cancel();
+    _accountPoll?.cancel();
     super.dispose();
   }
 
@@ -197,66 +202,138 @@ class _HomeShellState extends State<_HomeShell> {
     });
   }
 
-  void _onTabSelected(int i, NotificationsCubit notifCubit) {
+  void _startAccountPoll(AccountStatusCubit cubit) {
+    _accountPoll?.cancel();
+    _accountPoll = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      cubit.refresh(silent: true);
+    });
+  }
+
+  void _onTabSelected(
+    int i,
+    NotificationsCubit notifCubit,
+    AccountStatusCubit accountCubit,
+  ) {
     if (i == _tab) return;
     HapticFeedback.selectionClick();
     setState(() => _tab = i);
     if (i == 3) notifCubit.load();
+    if (i == 4) accountCubit.refresh(silent: true);
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (ctx) {
-        final cubit = NotificationsCubit(ctx.read<ApiClient>())..load();
-        _startPoll(cubit);
-        return cubit;
-      },
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(
+          create: (ctx) {
+            final cubit = NotificationsCubit(ctx.read<ApiClient>())..load();
+            _startPoll(cubit);
+            return cubit;
+          },
+        ),
+        BlocProvider(
+          create: (ctx) {
+            final cubit = AccountStatusCubit(ctx.read<ApiClient>())..refresh();
+            _startAccountPoll(cubit);
+            return cubit;
+          },
+        ),
+      ],
       child: Builder(
-        builder: (ctx) => Scaffold(
-          extendBody: true,
-          body: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            child: KeyedSubtree(
-              key: ValueKey(_tab),
-              child: _pages[_tab],
-            ),
-          ),
-          // Scaffold already sits the FAB above [bottomNavigationBar]; only a
-          // small lift so it clears the dock pill without a large dead gap.
-          floatingActionButton: _tab == 4
-              ? null
-              : Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: FloatingActionButton(
-                    heroTag: 'fab_create',
-                    tooltip: 'Report',
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => RepositoryProvider.value(
-                            value: context.read<ApiClient>(),
-                            child: const CreateReportPage(),
-                          ),
+        builder: (ctx) {
+          final blocked = ctx.watch<AccountStatusCubit>().state.isBlocked;
+          final statusColors = Theme.of(ctx).extension<AppStatusColors>()!;
+          return Scaffold(
+            extendBody: true,
+            body: Column(
+              children: [
+                if (blocked)
+                  Material(
+                    color: statusColors.danger,
+                    child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.sm,
                         ),
-                      );
-                    },
-                    child: Icon(AppIcons.addReport),
+                        child: Row(
+                          children: [
+                            Icon(
+                              AppIcons.warningCircle,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            const Expanded(
+                              child: Text(
+                                'Account is blocked. Contact an administrator.',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                  height: 1.3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: KeyedSubtree(
+                      key: ValueKey(_tab),
+                      child: _pages[_tab],
+                    ),
                   ),
                 ),
-          bottomNavigationBar: BlocBuilder<NotificationsCubit, NotificationsState>(
-            builder: (bctx, notifState) {
-              final unread = notifState is NotificationsLoaded ? notifState.unreadCount : 0;
-              final notifCubit = bctx.read<NotificationsCubit>();
-              return DockNav(
-                index: _tab,
-                unread: unread,
-                onSelect: (i) => _onTabSelected(i, notifCubit),
-              );
-            },
-          ),
-        ),
+              ],
+            ),
+            floatingActionButton: (_tab == 4 || blocked)
+                ? null
+                : Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: FloatingActionButton(
+                      heroTag: 'fab_create',
+                      tooltip: 'Report',
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => RepositoryProvider.value(
+                              value: context.read<ApiClient>(),
+                              child: BlocProvider.value(
+                                value: ctx.read<AccountStatusCubit>(),
+                                child: const CreateReportPage(),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                      child: Icon(AppIcons.addReport),
+                    ),
+                  ),
+            bottomNavigationBar:
+                BlocBuilder<NotificationsCubit, NotificationsState>(
+              builder: (bctx, notifState) {
+                final unread =
+                    notifState is NotificationsLoaded ? notifState.unreadCount : 0;
+                final notifCubit = bctx.read<NotificationsCubit>();
+                final accountCubit = bctx.read<AccountStatusCubit>();
+                return DockNav(
+                  index: _tab,
+                  unread: unread,
+                  onSelect: (i) => _onTabSelected(i, notifCubit, accountCubit),
+                );
+              },
+            ),
+          );
+        },
       ),
     );
   }

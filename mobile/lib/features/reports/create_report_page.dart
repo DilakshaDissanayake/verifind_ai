@@ -8,6 +8,7 @@ import '../../core/location_service.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_icons.dart';
 import '../../design/app_spacing.dart';
+import '../auth/account_status_cubit.dart';
 import '../auth/auth_cubit.dart';
 import 'ai_status_page.dart';
 
@@ -54,6 +55,7 @@ class _CreateReportPageState extends State<CreateReportPage> {
   bool _submitting = false;
   String? _submitStep;
   String? _errorMessage;
+  bool _isStrikeWarning = false;
   String? _locationHint;
   final List<_PickedImage> _images = [];
   final _location = LocationService();
@@ -108,16 +110,17 @@ class _CreateReportPageState extends State<CreateReportPage> {
 
   Future<void> _submit() async {
     if (!_hasRequiredFields) {
-      setState(
-        () =>
-            _errorMessage = 'Please complete category, title, and description.',
-      );
+      setState(() {
+        _errorMessage = 'Please complete category, title, and description.';
+        _isStrikeWarning = false;
+      });
       return;
     }
     final api = context.read<ApiClient>();
     setState(() {
       _submitting = true;
       _errorMessage = null;
+      _isStrikeWarning = false;
       _submitStep = 'Getting your location\u2026';
     });
     try {
@@ -169,7 +172,40 @@ class _CreateReportPageState extends State<CreateReportPage> {
       }
       setState(() => _errorMessage = 'Report accepted but no ID was returned.');
     } catch (e) {
-      setState(() => _errorMessage = ApiClient.friendlyError(e));
+      final msg = ApiClient.friendlyError(e);
+      final lower = msg.toLowerCase();
+      final strike = lower.contains('warning') ||
+          lower.contains('prohibited') ||
+          lower.contains('strike') ||
+          lower.contains('blocked') ||
+          lower.contains('3 attempts');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = msg;
+        _isStrikeWarning = strike;
+      });
+      if (strike) {
+        HapticFeedback.heavyImpact();
+        if (lower.contains('blocked')) {
+          try {
+            context.read<AccountStatusCubit>().markBlocked();
+          } catch (_) {
+            // Cubit not in tree when opened outside home shell.
+          }
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Theme.of(context)
+                .extension<AppStatusColors>()!
+                .danger,
+            content: Text(
+              msg,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+            ),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -350,26 +386,53 @@ class _CreateReportPageState extends State<CreateReportPage> {
           if (_errorMessage != null) ...[
             const SizedBox(height: AppSpacing.md),
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: statusColors.danger.withValues(alpha: 0.12),
+                color: statusColors.danger.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(
+                  color: statusColors.danger.withValues(alpha: 0.55),
+                  width: 1.4,
+                ),
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
                     AppIcons.warningCircle,
                     color: statusColors.danger,
-                    size: 18,
+                    size: 22,
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
-                    child: Text(
-                      _errorMessage!,
-                      style: TextStyle(
-                        color: statusColors.danger,
-                        fontSize: 13,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_isStrikeWarning)
+                          Text(
+                            _errorMessage!.toLowerCase().contains('blocked')
+                                ? 'Account blocked'
+                                : 'Content warning',
+                            style: TextStyle(
+                              color: statusColors.danger,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                            ),
+                          ),
+                        if (_isStrikeWarning) const SizedBox(height: 4),
+                        Text(
+                          _errorMessage!,
+                          style: TextStyle(
+                            color: statusColors.danger,
+                            fontSize: 13,
+                            fontWeight: _isStrikeWarning
+                                ? FontWeight.w600
+                                : FontWeight.w500,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],

@@ -15,7 +15,8 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from infrastructure.config import VISION_MODEL, get_api_key
+from infrastructure.config import VISION_MODEL
+from infrastructure.llm.llm_provider import chat_completions_with_failover
 from infrastructure.observability import get_tracer
 
 _SYSTEM_PROMPT = """\
@@ -71,42 +72,45 @@ async def run_vision_pipeline(
     tracer = get_tracer()
     start = time.monotonic()
 
-    api_key = get_api_key("openai")
-    if not api_key:
-        logger.warning("vision_pipeline: OPENAI_API_KEY not set — returning fallback")
-        return {**_FALLBACK_RESULT, "report_id": report_id, "latency_s": 0.0, "_source": "no_api_key"}
-
     b64 = base64.b64encode(image_bytes).decode()
     data_url = f"data:{content_type};base64,{b64}"
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_url, "detail": "low"},
+                },
+                {
+                    "type": "text",
+                    "text": "Identify this item and return the JSON object.",
+                },
+            ],
+        },
+    ]
 
-    payload = {
-        "model": VISION_MODEL,
-        "max_tokens": 800,
-        "temperature": 0,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": data_url, "detail": "low"},
-                    },
-                    {
-                        "type": "text",
-                        "text": "Identify this item and return the JSON object.",
-                    },
-                ],
-            },
-        ],
-    }
-
+    used_model = VISION_MODEL
+    used_provider = "openai"
     try:
-        raw_json = await asyncio.wait_for(
-            _call_openai_vision(api_key, payload),
-            timeout=timeout_s,
+        # Multi-provider circuit-breaker chain: OpenAI → OpenRouter(Gemini) → Ollama
+        out = await asyncio.wait_for(
+            chat_completions_with_failover(
+                role="vision",
+                messages=messages,
+                max_tokens=800,
+                temperature=0.0,
+                timeout_s=timeout_s,
+            ),
+            timeout=timeout_s + 5.0,
         )
-        result = _parse_tags(raw_json)
+        result = _parse_tags(out["content"])
+        used_model = out.get("model") or VISION_MODEL
+        used_provider = out.get("provider") or "openai"
+        if out.get("degraded"):
+            result["_degraded"] = True
+            result["_provider"] = used_provider
     except asyncio.TimeoutError:
         logger.warning("vision_pipeline: timeout after {}s for report_id={}", timeout_s, report_id)
         result = {**_FALLBACK_RESULT, "_source": "timeout"}
@@ -116,7 +120,8 @@ async def run_vision_pipeline(
 
     latency_s = round(time.monotonic() - start, 3)
     result["report_id"] = report_id
-    result["model"] = VISION_MODEL
+    result["model"] = used_model
+    result["provider"] = used_provider
     result["latency_s"] = latency_s
 
     if tracer:
@@ -141,18 +146,15 @@ async def run_vision_pipeline(
 
 
 async def _call_openai_vision(api_key: str, payload: dict[str, Any]) -> str:
-    """HTTP call to OpenAI chat completions; returns raw content string."""
-    import httpx
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
+    """Legacy helper kept for unit-test patches; prefer chat_completions_with_failover."""
+    messages = payload.get("messages") or []
+    out = await chat_completions_with_failover(
+        role="vision",
+        messages=messages,
+        max_tokens=int(payload.get("max_tokens") or 800),
+        temperature=float(payload.get("temperature") or 0),
+    )
+    return out["content"]
 
 
 def _parse_tags(content: str) -> dict[str, Any]:

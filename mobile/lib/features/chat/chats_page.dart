@@ -33,6 +33,7 @@ class _ChatsPageState extends State<ChatsPage> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -40,6 +41,7 @@ class _ChatsPageState extends State<ChatsPage> {
     try {
       final api = context.read<ApiClient>();
       final data = await api.listChatRooms();
+      if (!mounted) return;
       setState(() {
         _rooms = List<Map<String, dynamic>>.from(
           (data['items'] as List? ?? []).map(
@@ -48,8 +50,10 @@ class _ChatsPageState extends State<ChatsPage> {
         );
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = ApiClient.friendlyError(e));
     } finally {
+      if (!mounted) return;
       setState(() => _loading = false);
     }
   }

@@ -134,6 +134,8 @@ class Settings(BaseSettings):
     auth_dev_user_id: str = "00000000-0000-0000-0000-000000000001"
     auth_dev_email: str = "dev@verifind.local"
     auth_dev_role: str = "admin"  # Sprint 6 local admin SPA
+    # Optional redirect after email verify / password recovery (must be allow-listed in Supabase)
+    auth_redirect_url: str = ""
 
     @property
     def cors_origin_list(self) -> List[str]:
@@ -163,4 +165,5 @@ def get_settings() -> Settings:
         auth_dev_user_id=os.getenv("AUTH_DEV_USER_ID", "00000000-0000-0000-0000-000000000001"),
         auth_dev_email=os.getenv("AUTH_DEV_EMAIL", "dev@verifind.local"),
         auth_dev_role=os.getenv("AUTH_DEV_ROLE", "admin"),
+        auth_redirect_url=os.getenv("AUTH_REDIRECT_URL", "").strip(),
     )

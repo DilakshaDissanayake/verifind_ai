@@ -22,6 +22,11 @@ def test_find_prohibited_sexual_and_drugs():
     assert find_prohibited_match("lost phone", "normal") is None
     assert find_prohibited_match(None, "sexual content here") is not None
     assert find_prohibited_match("cocaine bag", None) is not None
+    assert find_prohibited_match("sexy phone", None) is not None
+    assert find_prohibited_match("sexya bag", None) is not None
+    assert find_prohibited_match("lost weapon near gate", None) is not None
+    assert find_prohibited_match(None, "found a gun") is not None
+    assert find_prohibited_match("wallet keys", "black leather") is None
 
 
 def test_admin_match_decide_pass():
