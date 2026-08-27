@@ -161,3 +161,9 @@ Examples/
 # Graphify AST cache (regenerable)
 graphify-out/
 
+
+# ------------------------------------------------------------------------------
+# Personal / academic Word docs — keep local only
+# ------------------------------------------------------------------------------
+*.doc
+*.docx
