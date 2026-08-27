@@ -6,6 +6,18 @@ provider:
   tier: general
   openrouter_base_url: https://openrouter.ai/api/v1
 
+# Context-Aware Graceful Degradation (WRIT1 FR-17 / NFR-08)
+# When OpenAI fails, agents auto-trigger the next provider in the chain.
+resilience:
+  failure_threshold: 3
+  recovery_timeout_s: 60
+  call_timeout_s: 20
+  fallback_chain:
+    vision: [openai, openrouter, ollama]
+    verify: [openai, openrouter, ollama]
+    router: [openai, openrouter, groq]
+    embed: [openai, openrouter]
+
 llm:
   temperature: 0.0
   max_tokens: 2000

@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from infrastructure.config import FRAUD, VERIFY_MODEL, VERIFY_PROVIDER, get_api_key
+from infrastructure.config import FRAUD
 from infrastructure.observability import observe, update_current_observation
 
 _QUESTION_COUNT = 3
@@ -81,23 +81,17 @@ Return ONLY the JSON array, no prose."""
 
 
 async def _call_llm_for_questions(prompt: str, n: int) -> list[dict[str, Any]]:
-    """Call verify LLM; fall back to stub questions on error."""
+    """Call verify LLM with multi-provider failover; stub questions on total failure."""
     try:
-        from openai import AsyncOpenAI
+        from infrastructure.llm.llm_provider import chat_completions_with_failover
 
-        api_key = get_api_key(VERIFY_PROVIDER)
-        if not api_key:
-            raise ValueError("No API key for verify provider")
-
-        client = AsyncOpenAI(api_key=api_key)
-        resp = await client.chat.completions.create(
-            model=VERIFY_MODEL,
+        out = await chat_completions_with_failover(
+            role="verify",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
             max_tokens=800,
-            response_format={"type": "json_object"} if "4o" in VERIFY_MODEL else None,  # type: ignore[arg-type]
         )
-        raw = resp.choices[0].message.content or "[]"
+        raw = out.get("content") or "[]"
         parsed = json.loads(raw)
         questions = _normalize_question_list(parsed, n)
         if not questions:
@@ -269,24 +263,19 @@ Score from 0.0 (completely wrong) to 1.0 (exact match / clearly correct).
 Reply with ONLY a float like 0.85"""
 
     try:
-        from openai import AsyncOpenAI
+        from infrastructure.llm.llm_provider import chat_completions_with_failover
 
-        api_key = get_api_key(VERIFY_PROVIDER)
-        if not api_key:
-            raise ValueError("no api key")
-
-        client = AsyncOpenAI(api_key=api_key)
-        resp = await client.chat.completions.create(
-            model=VERIFY_MODEL,
+        out = await chat_completions_with_failover(
+            role="verify",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=10,
         )
-        raw = (resp.choices[0].message.content or "0.0").strip()
+        raw = (out.get("content") or "0.0").strip()
         return max(0.0, min(1.0, float(raw)))
     except Exception as exc:
         logger.warning("_score_single_answer LLM failed: {} — keyword fallback", exc)
-        # Keyword overlap fallback
+        # Keyword overlap fallback (local degradation when all providers fail)
         answer_words = set(answer.lower().split())
         hint_words = set(expected_hint.lower().split())
         if not hint_words:

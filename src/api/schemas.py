@@ -57,11 +57,29 @@ class ResendVerificationResponse(BaseModel):
     message: str = "Verification email sent"
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str = "If that email is registered, a password reset link was sent"
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=6, max_length=128)
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class ChangePasswordResponse(BaseModel):
+    message: str = "Password updated"
+
+
 class MeResponse(BaseModel):
     user_id: str
     email: Optional[str] = None
     display_name: Optional[str] = None
     role: str = "user"
+    is_active: bool = True
     lost_count: int = 0
     found_count: int = 0
     active_chats: int = 0

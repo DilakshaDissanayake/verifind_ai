@@ -7,10 +7,20 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 
+# Sexual, drugs, and weapons / illegal items — lost-and-found must not accept these.
 _PROHIBITED = (
-    r"\b(cocaine|heroin|meth|methamphetamine|crack|fentanyl|ecstasy|mdma|"
-    r"marijuana|cannabis|weed|drugs?|porn|pornography|sex|sexual|nude|naked|"
-    r"escort|prostitut(?:e|ion)|child\s+sexual|rape)\b",
+    r"\b(?:"
+    # drugs
+    r"cocaine|heroin|meth|methamphetamine|crack|fentanyl|ecstasy|mdma|"
+    r"marijuana|cannabis|weed|drugs?|"
+    # sexual (include sexy / common misspellings; \bsex\b alone misses \"sexy\")
+    r"porn|pornography|sexya?|sexxy|sexual|sex|nude|naked|"
+    r"escort|prostitut(?:e|ion)|child\s+sexual|rape|"
+    # weapons / illegal arms
+    r"weapons?|firearms?|guns?|handguns?|pistols?|rifles?|shotguns?|"
+    r"ammunition|ammo|explosives?|bombs?|grenades?|molotov|"
+    r"assault\s+rifle|machine\s+guns?"
+    r")\b",
 )
 _PATTERN = re.compile("|".join(_PROHIBITED), re.IGNORECASE)
 
@@ -25,10 +35,10 @@ def validate_report_content(*values: str | None) -> None:
     """Legacy hard reject (no strike tracking). Prefer enforce_report_content."""
     if find_prohibited_match(*values):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=(
                 "This report contains prohibited content. Lost and found reports "
-                "cannot include sexual or drug-related content."
+                "cannot include sexual, drug, or weapon-related content."
             ),
         )
 
@@ -74,15 +84,15 @@ def enforce_report_content(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                f"Account blocked after {strike} prohibited content attempts "
-                f"(limit {limit}). An admin has been notified."
+                f"Your account is BLOCKED after {strike}/{limit} prohibited "
+                "content attempts. Contact an administrator."
             ),
         )
     raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=422,
         detail=(
-            "This report contains prohibited content (sexual or drug-related). "
-            f"It was not posted. Warning {strike}/{limit} — "
-            "3 violations permanently block your account."
+            "Prohibited content detected (sexual, drugs, or weapons). "
+            f"Report was NOT posted. Warning {strike}/{limit} — "
+            "your account will be blocked after 3 attempts."
         ),
     )

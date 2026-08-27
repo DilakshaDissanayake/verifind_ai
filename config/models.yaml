@@ -7,10 +7,11 @@ openrouter:
     strong: openai/gpt-4o
     reason: openai/o3-mini
   vision:
-    general: openai/gpt-4o-mini
+    # Secondary vision path when native OpenAI circuit is OPEN
+    general: google/gemini-2.5-flash
     strong: openai/gpt-4o
   verify:
-    general: openai/gpt-4o
+    general: anthropic/claude-3.5-sonnet
     strong: openai/gpt-4o
   embedding:
     default: openai/text-embedding-3-large

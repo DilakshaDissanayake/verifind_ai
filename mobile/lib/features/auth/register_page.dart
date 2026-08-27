@@ -5,6 +5,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_icons.dart';
 import '../../design/app_spacing.dart';
+import '../../widgets/vf_mark.dart';
+import '../onboarding/privacy_policy_page.dart';
 import 'auth_cubit.dart';
 
 class RegisterPage extends StatefulWidget {
@@ -79,23 +81,13 @@ class _RegisterPageState extends State<RegisterPage> {
                       borderRadius: BorderRadius.circular(AppRadius.lg),
                       border: Border.all(color: AppColors.lightBorder),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          AppIcons.shieldCheck,
-                          color: AppColors.brand,
-                          size: 28,
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        Expanded(
-                          child: Text(
-                            'Join VERIFIND',
-                            style: theme.textTheme.headlineMedium,
-                          ),
-                        ),
-                      ],
-                    ),
+                    child: const VfMark(size: 40),
                   ).animate().fadeIn(duration: 320.ms),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'Join VERIFIND',
+                    style: theme.textTheme.headlineMedium,
+                  ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     'Create an account to report lost or found items.',
@@ -117,7 +109,8 @@ class _RegisterPageState extends State<RegisterPage> {
                     keyboardType: TextInputType.phone,
                     decoration: InputDecoration(
                       labelText: 'Emergency contact number *',
-                      helperText: 'Private safety contact used by administrators only.',
+                      helperText:
+                          'Private safety contact for admins only — not a public police directory.',
                       prefixIcon: Icon(AppIcons.phone, size: 20),
                     ),
                     validator: (v) {
@@ -201,6 +194,23 @@ class _RegisterPageState extends State<RegisterPage> {
                         ? null
                         : () => Navigator.of(context).pop(),
                     child: const Text('Already have an account? Sign in'),
+                  ),
+                  TextButton(
+                    onPressed: loading
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const PrivacyPolicyPage(),
+                            ),
+                          ),
+                    child: Text(
+                      'Privacy & safety',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.55,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),

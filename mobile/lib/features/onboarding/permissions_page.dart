@@ -5,8 +5,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:phosphoricons_flutter/phosphoricons_flutter.dart';
 
 import '../../design/app_colors.dart';
-import '../../design/app_icons.dart';
 import '../../design/app_spacing.dart';
+import '../../widgets/vf_mark.dart';
 
 /// Transparency + consent notice shown before the app requests any OS
 /// permission. Explains *why* VERIFIND needs location and media access and
@@ -68,14 +68,14 @@ class _PermissionsPageState extends State<PermissionsPage> {
                         width: 72,
                         height: 72,
                         decoration: BoxDecoration(
-                          color: AppColors.ink,
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(AppRadius.lg),
+                          border: Border.all(color: AppColors.lightBorder),
                         ),
-                        alignment: Alignment.center,
-                        child: const Icon(
-                          AppIcons.shieldCheck,
-                          color: AppColors.brand,
-                          size: 36,
+                        padding: const EdgeInsets.all(8),
+                        child: Image.asset(
+                          kVerifindLogoAsset,
+                          fit: BoxFit.contain,
                         ),
                       )
                       .animate()

@@ -12,7 +12,9 @@ import '../../widgets/pill_selector.dart';
 import '../../widgets/skeleton_loaders.dart';
 import '../../widgets/status_pill.dart';
 import '../auth/auth_cubit.dart';
+import '../auth/account_status_cubit.dart';
 import '../matches/matches_page.dart';
+import '../onboarding/privacy_policy_page.dart';
 import '../reports/ai_status_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -53,6 +55,9 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         );
       });
+      try {
+        context.read<AccountStatusCubit>().refresh(silent: true);
+      } catch (_) {}
     } catch (e) {
       if (mounted) {
         setState(() => _error = ApiClient.friendlyError(e));
@@ -79,6 +84,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final lost = _me?['lost_count'] as int? ?? 0;
     final found = _me?['found_count'] as int? ?? 0;
     final chats = _me?['active_chats'] as int? ?? 0;
+    final isActive = _me?['is_active'] as bool? ?? true;
 
     return Scaffold(
       body: SafeArea(
@@ -103,6 +109,50 @@ class _ProfilePageState extends State<ProfilePage> {
                     AppSpacing.dockClearance,
                   ),
                   children: [
+                    if (!isActive) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .extension<AppStatusColors>()!
+                              .danger
+                              .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                          border: Border.all(
+                            color: Theme.of(context)
+                                .extension<AppStatusColors>()!
+                                .danger
+                                .withValues(alpha: 0.5),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              AppIcons.warningCircle,
+                              color: Theme.of(context)
+                                  .extension<AppStatusColors>()!
+                                  .danger,
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: Text(
+                                'Account is blocked. Contact an administrator.',
+                                style: TextStyle(
+                                  color: Theme.of(context)
+                                      .extension<AppStatusColors>()!
+                                      .danger,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
                     VfPageHeader(
                       eyebrow: 'Your vault',
                       title: name.isEmpty ? 'VERIFIND user' : name,
@@ -161,6 +211,22 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    OutlinedButton.icon(
+                      onPressed: () => _showChangePassword(context),
+                      icon: Icon(AppIcons.lock, size: 18),
+                      label: const Text('Change password'),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const PrivacyPolicyPage(),
+                        ),
+                      ),
+                      icon: Icon(AppIcons.shieldCheck, size: 18),
+                      label: const Text('Privacy & safety'),
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     Row(
@@ -239,6 +305,170 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
       ),
+    );
+  }
+
+  Future<void> _showChangePassword(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _ChangePasswordDialog(
+        authCubit: context.read<AuthCubit>(),
+        messenger: ScaffoldMessenger.of(context),
+      ),
+    );
+  }
+}
+
+class _ChangePasswordDialog extends StatefulWidget {
+  const _ChangePasswordDialog({
+    required this.authCubit,
+    required this.messenger,
+  });
+
+  final AuthCubit authCubit;
+  final ScaffoldMessengerState messenger;
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  late final TextEditingController _currentCtrl;
+  late final TextEditingController _newCtrl;
+  late final TextEditingController _confirmCtrl;
+  final _formKey = GlobalKey<FormState>();
+  bool _obscureCurrent = true;
+  bool _obscureNew = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentCtrl = TextEditingController();
+    _newCtrl = TextEditingController();
+    _confirmCtrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _currentCtrl.dispose();
+    _newCtrl.dispose();
+    _confirmCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!(_formKey.currentState?.validate() ?? false) || _saving) return;
+    setState(() => _saving = true);
+    try {
+      final msg = await widget.authCubit.changePassword(
+        currentPassword: _currentCtrl.text,
+        newPassword: _newCtrl.text,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.messenger.showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiClient.friendlyError(e))),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change password'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _currentCtrl,
+                obscureText: _obscureCurrent,
+                enabled: !_saving,
+                decoration: InputDecoration(
+                  labelText: 'Current password',
+                  prefixIcon: Icon(AppIcons.lock, size: 20),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureCurrent ? AppIcons.eye : AppIcons.eyeSlash,
+                      size: 20,
+                    ),
+                    onPressed: () =>
+                        setState(() => _obscureCurrent = !_obscureCurrent),
+                  ),
+                ),
+                validator: (v) =>
+                    (v == null || v.length < 6) ? 'Required' : null,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _newCtrl,
+                obscureText: _obscureNew,
+                enabled: !_saving,
+                decoration: InputDecoration(
+                  labelText: 'New password',
+                  prefixIcon: Icon(AppIcons.lock, size: 20),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureNew ? AppIcons.eye : AppIcons.eyeSlash,
+                      size: 20,
+                    ),
+                    onPressed: () => setState(() => _obscureNew = !_obscureNew),
+                  ),
+                ),
+                validator: (v) {
+                  if (v == null || v.length < 6) {
+                    return 'At least 6 characters';
+                  }
+                  if (v == _currentCtrl.text) {
+                    return 'Must differ from current password';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _confirmCtrl,
+                obscureText: _obscureNew,
+                enabled: !_saving,
+                decoration: const InputDecoration(
+                  labelText: 'Confirm new password',
+                  prefixIcon: Icon(AppIcons.lock, size: 20),
+                ),
+                validator: (v) {
+                  if (v != _newCtrl.text) return 'Passwords do not match';
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Update'),
+        ),
+      ],
     );
   }
 }

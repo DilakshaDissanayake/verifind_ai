@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   blockUser, clearToken, decideMatch, decideReview, downloadExport, getOverview, getReview,
   getStoredToken, listAdminReports, listAdminUsers, listAuditLogs, listModeration,
@@ -25,6 +25,15 @@ const nav: Array<[Page, string, string]> = [
 const date = (value?: string | null) =>
   value ? new Date(value).toLocaleString() : "—";
 const title = (page: Page) => nav.find(([key]) => key === page)?.[1] || "Overview";
+const relativeTime = (value: Date | null) => {
+  if (!value) return "Awaiting sync";
+  const sec = Math.max(0, Math.round((Date.now() - value.getTime()) / 1000));
+  if (sec < 8) return "Just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  return value.toLocaleTimeString();
+};
 
 export default function App() {
   const [page, setPage] = useState<Page>("overview");
@@ -37,16 +46,27 @@ export default function App() {
   const [records, setRecords] = useState<AuditLog[]>([]);
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [detail, setDetail] = useState<ReviewDetail | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingLabel, setLoadingLabel] = useState("Ready");
+  const [busyAction, setBusyAction] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [tick, setTick] = useState(0);
   const [email, setEmail] = useState("admin@gmail.com");
   const [password, setPassword] = useState("");
+  const noticeTimer = useRef<number | null>(null);
+
+  function flashNotice(msg: string) {
+    setNotice(msg);
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4200);
+  }
 
   async function withLoad<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
+    setBusyAction(true);
     setLoading(true);
     setLoadingLabel(label);
     setError(null);
@@ -58,6 +78,7 @@ export default function App() {
       setError(e instanceof Error ? e.message : String(e));
       return undefined;
     } finally {
+      setBusyAction(false);
       setLoading(false);
       setLoadingLabel("Ready");
     }
@@ -103,6 +124,29 @@ export default function App() {
     if (loggedIn) void load();
   }, [loggedIn, load]);
 
+  // Debounce search so typing does not hammer the API
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearch(searchInput.trim()), 320);
+    return () => window.clearTimeout(t);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setTick((n) => n + 1), 15000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (!detail) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busyAction) setDetail(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [detail, busyAction]);
+
+  // silence unused tick lint — drives relativeTime re-render
+  void tick;
+
   async function onLogin(e: React.FormEvent) {
     e.preventDefault();
     await withLoad("Signing in to control room…", async () => {
@@ -127,7 +171,7 @@ export default function App() {
       async () => {
         await decideReview(detail.claim_attempt_id, decision, "Admin dashboard decision");
         setDetail(null);
-        setNotice(decision === "PASS" ? "Claim approved — chat opened." : "Claim blocked.");
+        flashNotice(decision === "PASS" ? "Claim approved — chat opened." : "Claim blocked.");
         await load();
       }
     );
@@ -143,7 +187,7 @@ export default function App() {
       decision === "PASS" ? "Approving match for users…" : "Rejecting match (hide from feeds)…",
       async () => {
         const res = await decideMatch(id, decision, note);
-        setNotice(res.message);
+        flashNotice(res.message);
         await load();
       }
     );
@@ -158,7 +202,7 @@ export default function App() {
     await withLoad(active ? "Unblocking account…" : "Blocking account…", async () => {
       if (active) await unblockUser(u.user_id, reason);
       else await blockUser(u.user_id, reason);
-      setNotice(active ? "User unblocked." : "User blocked.");
+      flashNotice(active ? "User unblocked." : "User blocked.");
       await load();
     });
   }
@@ -171,7 +215,7 @@ export default function App() {
     if (!reason || reason.trim().length < 3) return;
     await withLoad("Revealing emergency contact (audited)…", async () => {
       const res = await revealContact(userId, reason.trim());
-      setNotice(`Contact for ${res.email}: ${res.emergency_contact || "Not provided"}`);
+      flashNotice(`Contact for ${res.email}: ${res.emergency_contact || "Not provided"}`);
       await load();
     });
   }
@@ -179,7 +223,7 @@ export default function App() {
   async function onResolveReport(id: string, action: "approve" | "quarantine" | "remove") {
     await withLoad(`Updating report (${action})…`, async () => {
       const res = await resolveReport(id, action);
-      setNotice(res.message);
+      flashNotice(res.message);
       await load();
     });
   }
@@ -187,7 +231,7 @@ export default function App() {
   async function onResolveModeration(id: string) {
     await withLoad("Marking safety event resolved…", async () => {
       await resolveModeration(id);
-      setNotice("Moderation event marked resolved.");
+      flashNotice("Moderation event marked resolved.");
       await load();
     });
   }
@@ -195,7 +239,7 @@ export default function App() {
   async function onExport(kind: "lost" | "found" | "handovers" | "all") {
     await withLoad(`Exporting ${kind} CSV…`, async () => {
       await downloadExport(kind);
-      setNotice(`Downloaded ${kind} export.`);
+      flashNotice(`Downloaded ${kind} export.`);
     });
   }
 
@@ -218,7 +262,7 @@ export default function App() {
       {loading && <div className="progress-rail" aria-hidden />}
       <aside className="sidebar">
         <div className="logo">
-          <span className="logo-mark">V</span>
+          <img className="logo-mark-img" src="/logo.png" alt="VERIFIND" width={34} height={34} />
           <div>
             VERIFIND
             <small>CONTROL ROOM</small>
@@ -228,7 +272,7 @@ export default function App() {
           <span className={`status-dot${loading ? " pulse" : ""}`} />{" "}
           {loading ? "Syncing…" : "Live workspace"}
         </div>
-        <nav>
+        <nav aria-label="Control room">
           {nav.map(([key, label, icon]) => {
             const count =
               key === "reviews"
@@ -241,15 +285,18 @@ export default function App() {
             return (
               <button
                 key={key}
+                type="button"
                 className={page === key ? "nav-item active" : "nav-item"}
-                disabled={loading}
+                aria-current={page === key ? "page" : undefined}
                 onClick={() => {
                   setPage(key);
                   setDetail(null);
+                  setSearchInput("");
+                  setSearch("");
                 }}
               >
-                <b>{icon}</b>
-                {label}
+                <b aria-hidden>{icon}</b>
+                <span className="nav-label">{label}</span>
                 {count ? <span className="nav-count">{count}</span> : null}
               </button>
             );
@@ -262,8 +309,8 @@ export default function App() {
             <span>Contacts & vault access are audited</span>
           </div>
           <button
+            type="button"
             className="signout"
-            disabled={loading}
             onClick={() => {
               clearToken();
               setLoggedIn(false);
@@ -277,49 +324,51 @@ export default function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">Operations / {title(page)}</span>
-            <h1>{title(page)}</h1>
+            <h1>{detail ? "Claim evidence" : title(page)}</h1>
           </div>
           <div className="top-actions">
             <div className="sync-chip" title={lastSynced ? lastSynced.toLocaleString() : "Not synced yet"}>
               <span className={`sync-dot${loading ? " on" : ""}`} />
-              {loading ? loadingLabel : lastSynced ? `Synced ${lastSynced.toLocaleTimeString()}` : "Awaiting sync"}
+              {loading ? loadingLabel : relativeTime(lastSynced)}
             </div>
             <button
+              type="button"
               className="icon-button"
               disabled={loading}
               onClick={() => void load()}
-              aria-label="Refresh"
+              aria-label="Refresh data"
+              title="Refresh"
             >
               {loading ? "…" : "↻"}
             </button>
-            <div className="admin-avatar">A</div>
+            <div className="admin-avatar" title="Administrator">A</div>
           </div>
         </header>
-        {loading && (
+        {busyAction && (
           <div className="process-banner" role="status">
             <span className="spinner" />
             <div>
-              <strong>Process running</strong>
+              <strong>Working on it</strong>
               <p>{loadingLabel}</p>
             </div>
           </div>
         )}
         {error && (
-          <div className="error-banner">
-            {error}
-            <button onClick={() => setError(null)}>×</button>
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+            <button type="button" aria-label="Dismiss error" onClick={() => setError(null)}>×</button>
           </div>
         )}
         {notice && (
-          <div className="notice-banner">
-            {notice}
-            <button onClick={() => setNotice(null)}>×</button>
+          <div className="notice-banner" role="status">
+            <span>{notice}</span>
+            <button type="button" aria-label="Dismiss notice" onClick={() => setNotice(null)}>×</button>
           </div>
         )}
         {detail ? (
           <ReviewDetailView
             detail={detail}
-            loading={loading}
+            loading={busyAction}
             loadingLabel={loadingLabel}
             onBack={() => setDetail(null)}
             onDecide={decide}
@@ -334,8 +383,8 @@ export default function App() {
             moderation={moderation}
             records={records}
             reviews={reviews}
-            search={search}
-            setSearch={setSearch}
+            search={searchInput}
+            setSearch={setSearchInput}
             loading={loading}
             loadingLabel={loadingLabel}
             openReview={openReview}
@@ -345,7 +394,11 @@ export default function App() {
             onResolveReport={onResolveReport}
             onResolveModeration={onResolveModeration}
             onExport={onExport}
-            go={(p) => setPage(p)}
+            go={(p) => {
+              setPage(p);
+              setSearchInput("");
+              setSearch("");
+            }}
           />
         )}
       </main>
@@ -362,19 +415,25 @@ function Login(props: {
   error: string | null;
   onLogin: (e: React.FormEvent) => void;
 }) {
+  const [showPw, setShowPw] = useState(false);
   return (
     <div className="login-screen">
       <div className="login-art">
-        <span>V</span>
+        <img src="/logo.png" alt="VERIFIND" width={88} height={88} />
         <p>
           Trust, with
           <br />
           <strong>evidence.</strong>
         </p>
+        <ul className="login-points">
+          <li>Fraud review with vault vs public</li>
+          <li>Match approvals before users see them</li>
+          <li>Audited contact reveals</li>
+        </ul>
       </div>
       <form className="login-card" onSubmit={props.onLogin}>
         <div className="logo">
-          <span className="logo-mark">V</span>
+          <img className="logo-mark-img" src="/logo.png" alt="VERIFIND" width={34} height={34} />
           <div>
             VERIFIND
             <small>CONTROL ROOM</small>
@@ -386,11 +445,12 @@ function Login(props: {
           Approve matches, review claims, enforce content safety, and contact users only when an
           issue requires it.
         </p>
-        {props.error && <div className="error-banner">{props.error}</div>}
+        {props.error && <div className="error-banner" role="alert">{props.error}</div>}
         <label>
           Email
           <input
             type="email"
+            autoComplete="username"
             value={props.email}
             onChange={(e) => props.setEmail(e.target.value)}
             required
@@ -398,20 +458,29 @@ function Login(props: {
         </label>
         <label>
           Password
-          <input
-            type="password"
-            value={props.password}
-            onChange={(e) => props.setPassword(e.target.value)}
-            required
-          />
+          <div className="password-field">
+            <input
+              type={showPw ? "text" : "password"}
+              autoComplete="current-password"
+              value={props.password}
+              onChange={(e) => props.setPassword(e.target.value)}
+              required
+            />
+            <button
+              type="button"
+              className="ghost-toggle"
+              onClick={() => setShowPw((v) => !v)}
+              aria-label={showPw ? "Hide password" : "Show password"}
+            >
+              {showPw ? "Hide" : "Show"}
+            </button>
+          </div>
         </label>
         <button className="primary-button" disabled={props.loading}>
           {props.loading ? "Signing in…" : "Enter control room →"}
         </button>
         {props.loading && (
-          <p className="muted" style={{ marginTop: 14, fontSize: 11 }}>
-            Verifying administrator credentials…
-          </p>
+          <p className="muted login-hint">Verifying administrator credentials…</p>
         )}
       </form>
     </div>
@@ -452,16 +521,33 @@ function PageView(p: PageProps) {
   const common = (
     <div className="page-toolbar">
       <div className="search-box">
-        ⌕
+        <span aria-hidden>⌕</span>
         <input
           placeholder={`Search ${p.page}…`}
           value={p.search}
           disabled={p.loading}
           onChange={(e) => p.setSearch(e.target.value)}
+          aria-label={`Search ${p.page}`}
         />
+        {p.search ? (
+          <button
+            type="button"
+            className="clear-search"
+            aria-label="Clear search"
+            onClick={() => p.setSearch("")}
+          >
+            ×
+          </button>
+        ) : null}
       </div>
       <span className="result-count">
-        {p.loading ? p.loadingLabel : "Updated just now"}
+        {p.loading
+          ? p.loadingLabel
+          : p.page === "reports"
+            ? `${p.reports.length} report${p.reports.length === 1 ? "" : "s"}`
+            : p.page === "users"
+              ? `${p.users.length} people`
+              : "Updated"}
       </span>
     </div>
   );
@@ -626,30 +712,115 @@ function OverviewPage({
   go: (p: Page) => void;
   onExport: (kind: "lost" | "found" | "handovers" | "all") => void;
 }) {
-  const cards = data
+  const pending =
+    (data?.pending_reviews ?? 0) +
+    (data?.pending_match_approvals ?? 0) +
+    (data?.open_moderation ?? 0);
+  const attentionOk = pending === 0;
+
+  const cards: Array<{
+    label: string;
+    value: number;
+    hint: string;
+    target: Page;
+    tone?: "alert" | "danger";
+  }> = data
     ? [
-        ["Reports", data.reports, "Across the network"],
-        ["Needs review", data.pending_reviews, "Fraud claims"],
-        ["Handovers", data.successful_handovers ?? 0, "PASS / success"],
-        ["Hidden closed", data.closed_reports ?? 0, "After handover"],
+        { label: "Reports", value: data.reports, hint: "Live network", target: "reports" },
+        {
+          label: "Fraud queue",
+          value: data.pending_reviews,
+          hint: "Needs decision",
+          target: "reviews",
+          tone: data.pending_reviews > 0 ? "alert" : undefined,
+        },
+        {
+          label: "Match pass",
+          value: data.pending_match_approvals,
+          hint: "Awaiting approve",
+          target: "suggestions",
+          tone: data.pending_match_approvals > 0 ? "alert" : undefined,
+        },
+        {
+          label: "Safety",
+          value: data.open_moderation,
+          hint: "Open events",
+          target: "moderation",
+          tone: data.open_moderation > 0 ? "danger" : undefined,
+        },
+        {
+          label: "Handovers",
+          value: data.successful_handovers ?? 0,
+          hint: "PASS / success",
+          target: "reports",
+        },
+        {
+          label: "Blocked",
+          value: data.blocked_users,
+          hint: "Accounts",
+          target: "users",
+          tone: data.blocked_users > 0 ? "danger" : undefined,
+        },
       ]
     : [];
+
   return (
     <>
       <SectionIntro
-        kicker="Good morning, admin"
-        heading="The network at a glance"
-        copy="Approve matches, resolve fraud reviews, hide completed handovers from public, and export full reports."
+        kicker="Operations desk"
+        heading="Network control room"
+        copy="Triage fraud reviews, approve AI matches, moderate safety strikes, and export handover records — without leaving this desk."
       />
-      <div className="metric-grid">
-        {cards.map(([label, value, hint]) => (
-          <div className="metric-card" key={String(label)}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-            <small>{hint}</small>
+
+      <div className={`attention-bar${attentionOk ? " ok" : ""}`}>
+        <div>
+          <strong>
+            {attentionOk
+              ? "All clear — no urgent queues"
+              : `${pending} item${pending === 1 ? "" : "s"} need attention`}
+          </strong>
+          <p>
+            {attentionOk
+              ? "Fraud, matches, and safety queues are empty."
+              : "Jump to the highest-priority queue below."}
+          </p>
+        </div>
+        {!attentionOk && (
+          <div className="attention-actions">
+            {(data?.pending_reviews ?? 0) > 0 && (
+              <button type="button" className="mini-button warn" onClick={() => go("reviews")}>
+                Review claims
+              </button>
+            )}
+            {(data?.pending_match_approvals ?? 0) > 0 && (
+              <button type="button" className="mini-button warn" onClick={() => go("suggestions")}>
+                Approve matches
+              </button>
+            )}
+            {(data?.open_moderation ?? 0) > 0 && (
+              <button type="button" className="mini-button danger" onClick={() => go("moderation")}>
+                Safety events
+              </button>
+            )}
           </div>
+        )}
+      </div>
+
+      <div className="metric-grid metric-grid-6">
+        {cards.map((c) => (
+          <button
+            type="button"
+            className={`metric-card metric-card-btn${c.tone ? ` ${c.tone}` : ""}`}
+            key={c.label}
+            onClick={() => go(c.target)}
+          >
+            <span>{c.label}</span>
+            <strong>{c.value}</strong>
+            <small>{c.hint}</small>
+          </button>
         ))}
       </div>
+
       <div className="overview-grid">
         <div className="surface-panel">
           <div className="panel-heading">
@@ -661,7 +832,7 @@ function OverviewPage({
               <i /> LIVE
             </span>
           </div>
-          <button className="priority-row row-button" onClick={() => go("reviews")}>
+          <button type="button" className="priority-row row-button" onClick={() => go("reviews")}>
             <div className="priority-icon amber">!</div>
             <div>
               <strong>{data?.pending_reviews ?? 0} claims need a decision</strong>
@@ -669,7 +840,7 @@ function OverviewPage({
             </div>
             <span className="arrow">→</span>
           </button>
-          <button className="priority-row row-button" onClick={() => go("suggestions")}>
+          <button type="button" className="priority-row row-button" onClick={() => go("suggestions")}>
             <div className="priority-icon amber">✦</div>
             <div>
               <strong>{data?.pending_match_approvals ?? 0} matches awaiting pass</strong>
@@ -677,7 +848,7 @@ function OverviewPage({
             </div>
             <span className="arrow">→</span>
           </button>
-          <button className="priority-row row-button" onClick={() => go("reports")}>
+          <button type="button" className="priority-row row-button" onClick={() => go("reports")}>
             <div className="priority-icon amber">▤</div>
             <div>
               <strong>
@@ -687,7 +858,7 @@ function OverviewPage({
             </div>
             <span className="arrow">→</span>
           </button>
-          <button className="priority-row row-button" onClick={() => go("moderation")}>
+          <button type="button" className="priority-row row-button" onClick={() => go("moderation")}>
             <div className="priority-icon red">⚠</div>
             <div>
               <strong>
@@ -699,26 +870,41 @@ function OverviewPage({
           </button>
         </div>
         <div className="surface-panel tone-panel">
-          <span className="eyebrow">Exports</span>
-          <h2>Download control-room CSVs</h2>
+          <span className="eyebrow">Exports & posture</span>
+          <h2>Control-room toolkit</h2>
           <p>
-            After lost and found complete handover, posts leave the public feed. Admins still
-            export every lost item, found item, and successful handover record.
+            After handover, posts leave the public feed. Admins still export every lost item,
+            found item, and successful handover — and keep an audit trail of decisions.
           </p>
+          <div className="health-strip">
+            <div className="health-pill">
+              <span>Closed posts</span>
+              <strong>{data?.closed_reports ?? 0}</strong>
+            </div>
+            <div className="health-pill">
+              <span>Open queues</span>
+              <strong>{pending}</strong>
+            </div>
+            <div className="health-pill">
+              <span>People</span>
+              <strong>{data?.users ?? 0}</strong>
+            </div>
+          </div>
           <div className="export-stack">
-            <button className="mini-button" onClick={() => onExport("lost")}>
-              Lost items CSV
+            <button type="button" className="mini-button" onClick={() => onExport("lost")}>
+              Lost CSV
             </button>
-            <button className="mini-button" onClick={() => onExport("found")}>
-              Found items CSV
+            <button type="button" className="mini-button" onClick={() => onExport("found")}>
+              Found CSV
             </button>
-            <button className="mini-button ok" onClick={() => onExport("handovers")}>
-              Successful handovers CSV
+            <button type="button" className="mini-button ok" onClick={() => onExport("handovers")}>
+              Handovers CSV
+            </button>
+            <button type="button" className="mini-button" onClick={() => onExport("all")}>
+              Full export
             </button>
           </div>
-          <div className="principle-line">
-            <span>◈</span> Decisions stay reviewable
-          </div>
+          <div className="principle-line">◆ Decisions stay reviewable</div>
         </div>
       </div>
     </>
@@ -756,9 +942,9 @@ function ReportTable({
 }) {
   return (
     <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
-      <TableHead labels={["Report", "Type", "Owner", "Status", "Actions"]} />
+      <TableHead labels={["Report", "Type", "Owner", "Status", "Actions"]} cols="cols-actions" />
       {rows.map((r) => (
-        <div className="data-row actions-row" key={r.report_id}>
+        <div className="data-row cols-actions" key={r.report_id}>
           <div>
             <strong>{r.title || "Untitled report"}</strong>
             <small>{r.category || "No category"}</small>
@@ -784,7 +970,9 @@ function ReportTable({
           </div>
         </div>
       ))}
-      {!rows.length && <Empty text="No reports found." />}
+      {!rows.length && (
+        <Empty text="No reports found." hint="Try clearing search, or create a report from the mobile app." />
+      )}
     </div>
   );
 }
@@ -802,9 +990,9 @@ function UserTable({
 }) {
   return (
     <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
-      <TableHead labels={["Person", "Strikes", "Trust", "State", "Actions"]} />
+      <TableHead labels={["Person", "Strikes", "Trust", "State", "Actions"]} cols="cols-actions" />
       {rows.map((u) => (
-        <div className="data-row actions-row" key={u.user_id}>
+        <div className="data-row cols-actions" key={u.user_id}>
           <div>
             <strong>{u.display_name || "Unnamed member"}</strong>
             <small>{u.email}</small>
@@ -830,7 +1018,9 @@ function UserTable({
           </div>
         </div>
       ))}
-      {!rows.length && <Empty text="No users found." />}
+      {!rows.length && (
+        <Empty text="No users found." hint="Registered members will appear here." />
+      )}
     </div>
   );
 }
@@ -846,9 +1036,9 @@ function SuggestionTable({
 }) {
   return (
     <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
-      <TableHead labels={["Pair", "Score", "Band", "Admin", "Actions"]} />
+      <TableHead labels={["Pair", "Score", "Band", "Admin", "Actions"]} cols="cols-actions" />
       {rows.map((s) => (
-        <div className="data-row actions-row" key={s.match_id}>
+        <div className="data-row cols-actions" key={s.match_id}>
           <div>
             <strong>{s.lost_title || "Lost item"}</strong>
             <small>↔ {s.found_title || "Found item"}</small>
@@ -872,7 +1062,9 @@ function SuggestionTable({
           </div>
         </div>
       ))}
-      {!rows.length && <Empty text="No suggestions found." />}
+      {!rows.length && (
+        <Empty text="No suggestions found." hint="New AI matches awaiting approval show up here." />
+      )}
     </div>
   );
 }
@@ -890,9 +1082,9 @@ function ModerationTable({
 }) {
   return (
     <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
-      <TableHead labels={["Event", "User / contact", "Strike", "Snippet", "Actions"]} />
+      <TableHead labels={["Event", "User / contact", "Strike", "Snippet", "Actions"]} cols="cols-actions" />
       {rows.map((e) => (
-        <div className="data-row actions-row" key={e.event_id}>
+        <div className="data-row cols-actions" key={e.event_id}>
           <div>
             <strong>{e.kind.replace(/_/g, " ")}</strong>
             <small>{date(e.created_at)}</small>
@@ -915,7 +1107,9 @@ function ModerationTable({
           </div>
         </div>
       ))}
-      {!rows.length && <Empty text="No open safety events." />}
+      {!rows.length && (
+        <Empty text="No open safety events." hint="Prohibited content strikes will list here." />
+      )}
     </div>
   );
 }
@@ -931,10 +1125,11 @@ function ReviewTable({
 }) {
   return (
     <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
-      <TableHead labels={["Risk", "Claimant", "Item", "Score", "Created"]} />
+      <TableHead labels={["Risk", "Claimant", "Item", "Score", "Created"]} cols="cols-reviews" />
       {rows.map((r) => (
         <button
-          className="data-row row-button"
+          type="button"
+          className="data-row row-button cols-reviews"
           key={r.claim_attempt_id}
           disabled={busy}
           onClick={() => openReview(r.claim_attempt_id)}
@@ -951,7 +1146,9 @@ function ReviewTable({
           <time>{date(r.created_at)}</time>
         </button>
       ))}
-      {!rows.length && <Empty text="The review queue is clear." />}
+      {!rows.length && (
+        <Empty text="The review queue is clear." hint="Medium-risk claims land here for a human PASS or BLOCK." />
+      )}
     </div>
   );
 }
@@ -959,9 +1156,9 @@ function ReviewTable({
 function AuditTable({ rows }: { rows: AuditLog[] }) {
   return (
     <div className="surface-panel table-panel">
-      <TableHead labels={["Action", "Entity", "Actor", "Details", "Time"]} />
+      <TableHead labels={["Action", "Entity", "Actor", "Details", "Time"]} cols="cols-default" />
       {rows.map((r) => (
-        <div className="data-row" key={r.audit_id}>
+        <div className="data-row cols-default" key={r.audit_id}>
           <strong>{r.action.replace(/_/g, " ")}</strong>
           <span>{r.entity_type || "—"}</span>
           <span>{r.actor_id?.slice(0, 8) || "system"}</span>
@@ -974,9 +1171,9 @@ function AuditTable({ rows }: { rows: AuditLog[] }) {
   );
 }
 
-function TableHead({ labels }: { labels: string[] }) {
+function TableHead({ labels, cols = "cols-default" }: { labels: string[]; cols?: string }) {
   return (
-    <div className="table-head">
+    <div className={`table-head ${cols}`}>
       {labels.map((label) => (
         <span key={label}>{label}</span>
       ))}
@@ -988,8 +1185,14 @@ function Status({ value }: { value: string }) {
   return <span className={`status status-${value.toLowerCase()}`}>{value}</span>;
 }
 
-function Empty({ text }: { text: string }) {
-  return <div className="empty-state">{text}</div>;
+function Empty({ text, hint }: { text: string; hint?: string }) {
+  return (
+    <div className="empty-state">
+      <div className="empty-mark" aria-hidden>○</div>
+      <strong>{text}</strong>
+      {hint ? <p>{hint}</p> : null}
+    </div>
+  );
 }
 
 function ReviewDetailView({
@@ -1005,6 +1208,8 @@ function ReviewDetailView({
   onBack: () => void;
   onDecide: (d: "PASS" | "BLOCK") => void;
 }) {
+  const scorePct =
+    detail.overall_score == null ? null : Math.round(detail.overall_score * 100);
   return (
     <div className={`detail-view${loading ? " is-busy" : ""}`}>
       {loading && (
@@ -1016,14 +1221,31 @@ function ReviewDetailView({
           </div>
         </div>
       )}
-      <button className="back-link" disabled={loading} onClick={onBack}>
+      <button type="button" className="back-link" disabled={loading} onClick={onBack}>
         ← Back to review queue
+        <kbd className="kbd-hint">Esc</kbd>
       </button>
       <SectionIntro
         kicker="Evidence review"
         heading={detail.found_report_title || "Claim detail"}
-        copy="Review vault vs public evidence. Contacts are shown for issue handling only."
+        copy="Compare vault vs public. Contacts are shown for issue handling only."
       />
+      <div className="score-strip">
+        <div>
+          <span className="eyebrow">Overall score</span>
+          <strong>{scorePct == null ? "—" : `${scorePct}%`}</strong>
+        </div>
+        <div>
+          <span className="eyebrow">Fraud risk</span>
+          <strong>
+            {detail.fraud_risk == null ? "—" : detail.fraud_risk.toFixed(2)}
+          </strong>
+        </div>
+        <div>
+          <span className="eyebrow">Status</span>
+          <Status value={detail.status || "review"} />
+        </div>
+      </div>
       <div className="evidence-grid">
         <div className="evidence-card">
           <span>Public image</span>
@@ -1063,22 +1285,24 @@ function ReviewDetailView({
           <span className="eyebrow">Interrogation</span>
           <h3>Answers vs vault features</h3>
           <ul>
-            {detail.questions.map((q, i) => (
-              <li key={i}>
-                <strong>{String(q.question || q.question_id || `Q${i + 1}`)}</strong>
-                <span>Answer: {detail.answers[i] || "—"}</span>
-                <span>
-                  Score:{" "}
-                  {detail.semantic_scores[i] == null
-                    ? "—"
-                    : detail.semantic_scores[i].toFixed(2)}
-                </span>
-              </li>
-            ))}
+            {detail.questions.map((q, i) => {
+              const s = detail.semantic_scores[i];
+              const tone =
+                s == null ? "" : s >= 0.6 ? "qa-good" : s >= 0.3 ? "qa-mid" : "qa-bad";
+              return (
+                <li key={i} className={tone}>
+                  <strong>{String(q.question || q.question_id || `Q${i + 1}`)}</strong>
+                  <span>Answer: {detail.answers[i] || "—"}</span>
+                  <span className="qa-score">
+                    Score: {s == null ? "—" : s.toFixed(2)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
-      <div className="surface-panel decision-panel">
+      <div className="surface-panel decision-panel decision-sticky">
         <div>
           <span className="eyebrow">Decision</span>
           <h3>
@@ -1088,10 +1312,20 @@ function ReviewDetailView({
           <p className="muted">PASS opens anonymous chat. BLOCK applies a trust penalty.</p>
         </div>
         <div className="decision-actions">
-          <button className="secondary-button" disabled={loading} onClick={() => onDecide("BLOCK")}>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={loading}
+            onClick={() => onDecide("BLOCK")}
+          >
             {loading ? "Working…" : "Block claim"}
           </button>
-          <button className="primary-button" disabled={loading} onClick={() => onDecide("PASS")}>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={loading}
+            onClick={() => onDecide("PASS")}
+          >
             {loading ? "Working…" : "Approve and open chat →"}
           </button>
         </div>

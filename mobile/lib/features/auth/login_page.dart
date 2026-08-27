@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../core/api_client.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_icons.dart';
 import '../../design/app_spacing.dart';
 import '../../widgets/vf_mark.dart';
+import '../onboarding/privacy_policy_page.dart';
 import 'auth_cubit.dart';
 import 'register_page.dart';
 
@@ -110,7 +112,16 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ).animate().fadeIn(delay: 200.ms, duration: 380.ms),
-                const SizedBox(height: AppSpacing.xxl),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: loading
+                        ? null
+                        : () => _showForgotPassword(context),
+                    child: const Text('Forgot password?'),
+                  ),
+                ).animate().fadeIn(delay: 220.ms, duration: 380.ms),
+                const SizedBox(height: AppSpacing.md),
                 FilledButton(
                   onPressed: loading
                       ? null
@@ -140,11 +151,145 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                   child: const Text('New here? Create an account'),
                 ),
+                TextButton(
+                  onPressed: loading
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const PrivacyPolicyPage(),
+                          ),
+                        ),
+                  child: Text(
+                    'Privacy & safety',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
               ],
             );
           },
         ),
       ),
+    );
+  }
+
+  Future<void> _showForgotPassword(BuildContext context) async {
+    final initialEmail = _email.text.trim();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => _ForgotPasswordDialog(
+        initialEmail: initialEmail,
+        authCubit: context.read<AuthCubit>(),
+        messenger: ScaffoldMessenger.of(context),
+      ),
+    );
+  }
+}
+
+/// Owns its [TextEditingController] so Cancel/Send cannot dispose it mid-frame.
+class _ForgotPasswordDialog extends StatefulWidget {
+  const _ForgotPasswordDialog({
+    required this.initialEmail,
+    required this.authCubit,
+    required this.messenger,
+  });
+
+  final String initialEmail;
+  final AuthCubit authCubit;
+  final ScaffoldMessengerState messenger;
+
+  @override
+  State<_ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
+  late final TextEditingController _emailCtrl;
+  final _formKey = GlobalKey<FormState>();
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (!(_formKey.currentState?.validate() ?? false) || _sending) return;
+    setState(() => _sending = true);
+    try {
+      final msg = await widget.authCubit.forgotPassword(_emailCtrl.text.trim());
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.messenger.showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiClient.friendlyError(e))),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reset password'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter your account email. If it is registered, we will send a reset link.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextFormField(
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+              enabled: !_sending,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                prefixIcon: Icon(AppIcons.email, size: 20),
+              ),
+              validator: (v) {
+                if (v == null || !v.contains('@')) {
+                  return 'Enter a valid email';
+                }
+                return null;
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _sending ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _sending ? null : _send,
+          child: _sending
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Send link'),
+        ),
+      ],
     );
   }
 }
