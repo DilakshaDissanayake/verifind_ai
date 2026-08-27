@@ -1,0 +1,38 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Inside Compose, Redis hostname is the service name (not localhost)
+      REDIS_URL: redis://redis:6379/0
+      ARQ_WORKER_ENABLED: "true"
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      ARQ_WORKER_ENABLED: "true"
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+    depends_on:
+      - redis
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"

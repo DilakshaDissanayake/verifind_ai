@@ -1,0 +1,14 @@
+---
+description: Flutter mobile clean architecture BLoC Dio
+globs: mobile/**/*
+alwaysApply: false
+---
+
+# Mobile (Flutter)
+
+- Clean Architecture: presentation (BLoC) → domain → data (Dio).
+- GPS: fuzz ±500 m on client before send; never display exact finder home on public maps.
+- Upload original for vault processing; show only sanitized public images in feeds.
+- Contract-first against OpenAPI; mock match/claim responses until backend ready.
+- Auth via Supabase; store tokens securely (secure storage).
+- MVP screens first: auth + create report; claim/verify/chat after matchmaker exists.

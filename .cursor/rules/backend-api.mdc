@@ -1,0 +1,15 @@
+---
+description: FastAPI API gateway, routers, auth, schemas
+globs: src/api/**/*
+alwaysApply: false
+---
+
+# Backend API (FastAPI)
+
+- Keep routers thin: validate → call service/orchestrator → return schema.
+- Auth via Supabase JWT deps; never trust client-supplied user ids without verification.
+- Report create returns **202 Accepted** quickly; heavy AI goes to Arq workers.
+- Public responses must never include vault URLs, EXIF GPS, or `hidden_features`.
+- Prefer Pydantic schemas in `schemas.py`; mirror OpenAPI for Flutter contracts.
+- Health endpoint stays cheap (no LLM calls).
+- Log with structured Loguru fields; attach Langfuse trace ids when present.

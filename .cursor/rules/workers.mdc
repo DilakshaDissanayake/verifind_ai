@@ -1,0 +1,13 @@
+---
+description: Arq Redis background workers for AI and matching
+globs: src/workers/**/*
+alwaysApply: false
+---
+
+# Workers (Arq)
+
+- Jobs: `process_report_ai` → `compute_matches` → notify.
+- Idempotent tasks; safe to retry; store job status for clients.
+- Budget: full AI pipeline ≤ 8 s when possible; enqueue from API, do not block request thread.
+- On failure: log + Langfuse span; dead-letter / retry with backoff; do not silently drop.
+- Never publish unsanitized images from worker paths.

@@ -1,0 +1,45 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "VERIFIND mobile (Chrome)",
+      "request": "launch",
+      "type": "dart",
+      "program": "mobile/lib/main.dart",
+      "cwd": "mobile",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--web-hostname",
+        "127.0.0.1",
+        "--no-web-resources-cdn",
+        "--dart-define=API_BASE_URL=http://localhost:8000"
+      ]
+    },
+    {
+      "name": "VERIFIND mobile (web-server)",
+      "request": "launch",
+      "type": "dart",
+      "program": "mobile/lib/main.dart",
+      "cwd": "mobile",
+      "deviceId": "web-server",
+      "toolArgs": [
+        "--web-hostname",
+        "127.0.0.1",
+        "--web-port",
+        "8080",
+        "--dart-define=API_BASE_URL=http://localhost:8000"
+      ]
+    },
+    {
+      "name": "VERIFIND mobile (Windows)",
+      "request": "launch",
+      "type": "dart",
+      "program": "mobile/lib/main.dart",
+      "cwd": "mobile",
+      "deviceId": "windows",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=http://localhost:8000"
+      ]
+    }
+  ]
+}

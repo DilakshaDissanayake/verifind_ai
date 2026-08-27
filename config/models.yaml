@@ -1,0 +1,63 @@
+# VERIFIND AI — model tiers
+# Primary: native OpenAI. Fallbacks via OpenRouter / direct providers (Phase 2).
+
+openrouter:
+  chat:
+    general: openai/gpt-4o-mini
+    strong: openai/gpt-4o
+    reason: openai/o3-mini
+  vision:
+    general: openai/gpt-4o-mini
+    strong: openai/gpt-4o
+  verify:
+    general: openai/gpt-4o
+    strong: openai/gpt-4o
+  embedding:
+    default: openai/text-embedding-3-large
+    small: openai/text-embedding-3-small
+
+openai:
+  chat:
+    general: gpt-4o-mini
+    strong: gpt-4o
+    reason: o3-mini
+  vision:
+    general: gpt-4o-mini
+    strong: gpt-4o
+  verify:
+    general: gpt-4o
+    strong: gpt-4o
+  embedding:
+    default: text-embedding-3-large
+    small: text-embedding-3-small
+
+anthropic:
+  chat:
+    general: claude-3-haiku-20240307
+    strong: claude-3-5-sonnet-20241022
+  verify:
+    general: claude-3-5-sonnet-20241022
+    strong: claude-3-5-sonnet-20241022
+
+google:
+  chat:
+    general: gemini-2.5-flash
+    strong: gemini-2.5-pro
+  vision:
+    general: gemini-2.5-flash
+    strong: gemini-2.5-pro
+
+# Role → preferred provider/tier (Sprint 1 uses openai primary)
+roles:
+  router:
+    provider: openai
+    tier: general
+  vision:
+    provider: openai
+    tier: general
+  verify:
+    provider: openai
+    tier: strong
+  embed:
+    provider: openai
+    tier: small

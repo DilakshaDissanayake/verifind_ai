@@ -1,0 +1,13 @@
+---
+description: PostGIS pgvector SQL schema and migrations
+globs: sql/**/*
+alwaysApply: false
+---
+
+# SQL Schema
+
+- MVP tables: users, trust_scores, reports, report_images, ai_tags, image_vaults, matches, claim_attempts, verification_sessions, chat_rooms, chat_messages, notifications, audit_logs.
+- Enable PostGIS + pgvector; spatial indexes for nearby queries.
+- RLS-friendly design for Supabase; vault metadata never in public-readable views.
+- Migrations additive and reversible when possible; no dropping vault data casually.
+- Embeddings: 1536-d vectors for `text-embedding-3-small`.

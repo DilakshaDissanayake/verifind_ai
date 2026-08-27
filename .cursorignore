@@ -1,0 +1,261 @@
+
+# ==============================================================================
+# VERIFIND AI — Cursor ignore
+# Keeps indexing/context on source, docs, and graphify wiki.
+# Stack: Python (FastAPI), Flutter (Dart), React (Node.js), Docker, PostGIS, Redis
+# Syntax matches .gitignore. @-mention still works for ignored files.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Secrets & credentials (never index)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets.yaml
+secrets.json
+**/secrets.yaml
+**/secrets.json
+service-account.json
+google-services.json
+GoogleService-Info.plist
+credentials.json
+**/credentials.json
+.streamlit/secrets.toml
+.pypirc
+*.keystore
+**/key.properties
+
+# ------------------------------------------------------------------------------
+# Python & FastAPI
+# ------------------------------------------------------------------------------
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+**/*.egg
+**/*.egg-info/
+**/.installed.cfg
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+develop-eggs/
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+**/.venv/
+**/venv/
+**/.pdm-python
+.pdm-build/
+.pixi/
+__pypackages__/
+
+# Testing, coverage, type checkers
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ipynb_checkpoints/
+cover/
+coverage.xml
+*.cover
+.cache/
+
+# ------------------------------------------------------------------------------
+# Flutter & mobile (iOS / Android)
+# ------------------------------------------------------------------------------
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/.pub-cache/
+mobile/.pub/
+mobile/build/
+mobile/flutter_*.png
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/Podfile.lock
+
+# Android
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/app/local.properties
+mobile/android/local.properties
+**/.gradle/
+*.apk
+*.aab
+*.ipa
+
+# iOS
+mobile/ios/Pods/
+mobile/ios/Runner.xcworkspace/
+mobile/ios/Runner.xcodeproj/project.xcworkspace/
+mobile/ios/Runner.xcodeproj/xcuserdata/
+mobile/ios/.generated/
+**/Pods/
+**/*.xcworkspace/
+**/xcuserdata/
+
+# ------------------------------------------------------------------------------
+# Node.js & React (admin UI + example UIs)
+# ------------------------------------------------------------------------------
+node_modules/
+**/node_modules/
+ui/build/
+ui/dist/
+ui/.eslintcache
+**/.eslintcache
+**/dist/
+**/build/
+.vite/
+**/.vite/
+.next/
+**/.next/
+.turbo/
+**/.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------------------
+# Databases, caches, local volumes, vault storage
+# ------------------------------------------------------------------------------
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+pgdata/
+redisdata/
+qdrant_storage/
+**/.qdrant/
+*.rdb
+*.aof
+celerybeat-schedule*
+celerybeat.pid
+storage/private-vault/*
+storage/public-sanitized/*
+
+# ------------------------------------------------------------------------------
+# Graphify (keep wiki + report; drop cache, HTML, raw graph dumps)
+# ------------------------------------------------------------------------------
+graphify-out/cache/
+graphify-out/**/graph.html
+graphify-out/**/graph.json
+graphify-out/graph.html
+graphify-out/graph.json
+
+# ------------------------------------------------------------------------------
+# Nested git metadata inside Examples (not the example source)
+# ------------------------------------------------------------------------------
+Examples/**/.git/
+
+# ------------------------------------------------------------------------------
+# Logs, OS, editor junk
+# ------------------------------------------------------------------------------
+*.log
+logs/
+**/*.log
+**/.DS_Store
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+.system_generated/
+tempCodeRunnerFile.py
+
+# IDEs (keep committed VS Code/Cursor settings if present)
+.idea/
+*.iws
+*.iml
+*.ipr
+.fleet/
+*.code-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ------------------------------------------------------------------------------
+# Binaries, media, archives, office docs (not useful for code search)
+# ------------------------------------------------------------------------------
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ico
+*.svg
+*.mp4
+*.webm
+*.wav
+*.mp3
+*.pdf
+*.docx
+*.doc
+*.pptx
+*.xlsx
+*.zip
+*.tar
+*.gz
+*.tgz
+*.7z
+*.rar
+*.bin
+*.pt
+*.onnx
+*.pkl
+*.h5
+*.safetensors
+*.gguf
+*.wasm
+
+# ------------------------------------------------------------------------------
+# Example-app bulk data (keep their source; drop dumps / generated)
+# ------------------------------------------------------------------------------
+Examples/**/data/*.json
+Examples/**/data/*.db
+Examples/**/logs/
+Examples/**/ui/package-lock.json
+Examples/**/ui/public/
+

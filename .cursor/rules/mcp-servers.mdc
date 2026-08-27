@@ -1,0 +1,14 @@
+---
+description: MCP stdio tool servers for Vision Report Geo Fraud Chat
+globs: src/mcp_servers/**/*
+alwaysApply: false
+---
+
+# MCP Servers
+
+- One concern per server: `vision` | `report` | `geo` | `fraud` | `chat`.
+- Stdio MCP only; keep tool schemas explicit and versionable.
+- Servers wrap services/pipelines — no duplicate business logic inside prompts.
+- Geo: PostGIS `ST_DWithin` ≤ 5 km; accept client-fuzzed GPS (±500 m), never store raw home GPS if avoidable.
+- Fraud tools must be deterministic where possible (counts, cooldowns, thresholds from config).
+- Chat tools provision rooms only after PASS; no vault media in chat payloads.

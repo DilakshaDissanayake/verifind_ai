@@ -1,45 +1,161 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+# ==============================================================================
+# VERIFIND AI — Comprehensive Production .gitignore
+# Stack: Python (FastAPI), Flutter (Dart), React (Node.js), Docker, PostGIS, Redis
+# Copyright (c) 2026 Dilaksha Haritha Dissanayake <dilakshadissanayake01@gmail.com>
+# ==============================================================================
 
-# IntelliJ related
+# ------------------------------------------------------------------------------
+# Environment Variables & Secret Credentials (CRITICAL - DO NOT COMMIT)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.yaml
+secrets.json
+service-account.json
+google-services.json
+GoogleService-Info.plist
+
+# ------------------------------------------------------------------------------
+# Python & FastAPI
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+/lib/
+/lib64/
+!mobile/lib/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.nox/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+
+# ------------------------------------------------------------------------------
+# Flutter & Mobile (iOS / Android)
+# ------------------------------------------------------------------------------
+mobile/.fvm/flutter_sdk
+mobile/.fvm/versions
+mobile/.fvm/release
+mobile/.fvm/version
+mobile/.fvm/version_cache
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/.pub-cache/
+mobile/.pub/
+mobile/build/
+mobile/flutter_*.png
+
+# Android specific
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/app/local.properties
+mobile/android/key.properties
+*.apk
+*.aab
+
+# iOS specific
+mobile/ios/Pods/
+mobile/ios/Runner.xcworkspace/
+mobile/ios/Runner.xcodeproj/project.xcworkspace/
+mobile/ios/Runner.xcodeproj/xcuserdata/
+mobile/ios/.generated/
+*.ipa
+
+# ------------------------------------------------------------------------------
+# Node.js & React (Admin Dashboard UI)
+# ------------------------------------------------------------------------------
+ui/node_modules/
+ui/build/
+ui/dist/
+ui/.eslintcache
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------------------
+# Database & Local Storage Volumes
+# ------------------------------------------------------------------------------
+pgdata/
+redisdata/
+qdrant_storage/
+storage/private-vault/*
+!storage/private-vault/.gitkeep
+storage/public-sanitized/*
+!storage/public-sanitized/.gitkeep
+
+# ------------------------------------------------------------------------------
+# Logs & System Files
+# ------------------------------------------------------------------------------
+*.log
+logs/
+.system_generated/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ------------------------------------------------------------------------------
+# IDEs & Code Editors
+# ------------------------------------------------------------------------------
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+.idea/
+*.iws
 *.iml
 *.ipr
-*.iws
-.idea/
+.fleet/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# Local reference clones — do not commit
+Examples/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
 
-# Symbolication related
-app.*.symbols
+# Graphify AST cache (regenerable)
+graphify-out/
 
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release

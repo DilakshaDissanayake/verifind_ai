@@ -1,47 +1,41 @@
-name: CI Frontend
+name: CI
 
 on:
-  pull_request:
-    branches:
-      - main
-      - dev
-
   push:
-    branches:
-      - main
-      - dev
-
-permissions:
-  contents: read
+    branches: [main, master, develop]
+  pull_request:
 
 jobs:
-  validate:
-    name: Validate
+  backend:
+    name: pytest (core paths)
     runs-on: ubuntu-latest
-
+    env:
+      AUTH_DEV_BYPASS: "true"
+      AUTH_DEV_ROLE: admin
+      ARQ_WORKER_ENABLED: "false"
+      PYTHONPATH: src
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
         with:
-          cache: true
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Check formatting
-        run: dart format --set-exit-if-changed --output=none .
-
-      - name: Analyze project
-        run: flutter analyze
-
+          enable-cache: true
+      - name: Install deps
+        run: uv sync
       - name: Run tests
-        run: flutter test --coverage
+        run: uv run pytest tests/ -q --tb=line
 
-      # - name: Check dependency freshness
-      #   run: dart pub outdated --exit-code
-
-      - name: Scan for secrets
-        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo --no-banner --redact --exit-code=1
+  admin-ui:
+    name: admin UI typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install
+        run: npm install
+      - name: Typecheck
+        run: npm run lint

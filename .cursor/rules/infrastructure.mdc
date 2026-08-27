@@ -1,0 +1,14 @@
+---
+description: Infra clients LLM DB Redis Qdrant config logging
+globs: src/infrastructure/**/*
+alwaysApply: false
+---
+
+# Infrastructure
+
+- Centralize env/config; read fusion/fraud/model tiers from `config/*.yaml`.
+- LLM: use shared `llm_provider` with tiered fallbacks (OpenAI → Gemini/Claude → local).
+- DB: Supabase Postgres + PostGIS + pgvector; parameterized SQL only.
+- Storage buckets: `public-sanitized` vs `private-vault` — enforce path checks at client wrapper.
+- Redis for Arq + pub/sub; Qdrant optional (PG vectors are fallback).
+- Observability: Loguru + Langfuse; never log secrets or vault image bytes.

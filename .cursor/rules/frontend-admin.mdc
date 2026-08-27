@@ -1,0 +1,13 @@
+---
+description: React admin fraud review dashboard standards
+globs: ui/**/*.{ts,tsx,css}
+alwaysApply: false
+---
+
+# Frontend Admin (React)
+
+- Admin purpose: fraud **REVIEW** queue — vault vs public side-by-side; not a chat-first product UI.
+- Functional components; colocate hooks; keep components focused (<150 lines when practical).
+- Call authenticated admin APIs only; never request vault URLs from unprivileged roles.
+- Prefer existing UI patterns from `Examples/*/ui` only for shell/auth — rewrite domain screens for VERIFIND.
+- Compact test output when running frontend tests.
