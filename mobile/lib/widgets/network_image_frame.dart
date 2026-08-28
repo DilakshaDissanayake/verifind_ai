@@ -4,8 +4,7 @@ import 'package:flutter/material.dart';
 import '../design/app_icons.dart';
 import 'skeleton_loaders.dart';
 
-/// Wraps [CachedNetworkImage] with a shimmer placeholder and a friendly
-/// broken-image fallback, matching Netflix/Uber-grade image loading polish.
+
 class NetworkImageFrame extends StatelessWidget {
   const NetworkImageFrame({
     super.key,

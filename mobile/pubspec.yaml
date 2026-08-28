@@ -40,5 +40,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/logo.png
+    - assets/board/
   # Launcher source art lives in assets/images/app_image/ (see flutter_launcher_icons.yaml).
   # Do not list that folder here — it is build-time only.
