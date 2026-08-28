@@ -37,4 +37,10 @@ class LocationService {
       rawLon: pos.longitude,
     );
   }
+
+  /// Fuzz a map-tapped point. Never send the raw tap as-is.
+  ({double lat, double lon}) fuzzPoint(double lat, double lon) {
+    final fuzzed = _fuzz.fuzz(lat, lon);
+    return (lat: fuzzed.lat, lon: fuzzed.lon);
+  }
 }

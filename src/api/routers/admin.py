@@ -18,7 +18,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from loguru import logger
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from api.deps import CurrentUser, require_admin
 from api.schemas import (
@@ -68,6 +68,7 @@ async def reports(
     search: str | None = Query(default=None, max_length=100),
     status_filter: str | None = Query(default=None, alias="status", max_length=30),
     report_type: str | None = Query(default=None, pattern="^(LOST|FOUND)$"),
+    category: str | None = Query(default=None, max_length=80),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user: CurrentUser = Depends(require_admin),
@@ -75,11 +76,34 @@ async def reports(
     _ = user
     try:
         rows = await asyncio.to_thread(
-            _list_admin_reports, search, status_filter, report_type, limit, offset
+            _list_admin_reports,
+            search,
+            status_filter,
+            report_type,
+            category,
+            limit,
+            offset,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return AdminReportListResponse(items=[AdminReportOut(**row) for row in rows], count=len(rows))
+
+    url_map: dict = {}
+    try:
+        from services.image_service import public_urls_for_reports
+
+        ids = [row["report_id"] for row in rows if row.get("report_id")]
+        if ids:
+            url_map = await asyncio.to_thread(public_urls_for_reports, ids)
+    except Exception as exc:
+        logger.warning("admin report public images failed: {}", exc)
+
+    items = []
+    for row in rows:
+        rid = row["report_id"]
+        payload = dict(row)
+        payload["public_image_urls"] = url_map.get(rid, [])
+        items.append(AdminReportOut(**payload))
+    return AdminReportListResponse(items=items, count=len(items))
 
 
 @router.get("/export")
@@ -89,12 +113,22 @@ async def export_reports(
         pattern="^(lost|found|handovers|all)$",
         description="lost | found | handovers | all",
     ),
+    ids: str | None = Query(
+        default=None,
+        max_length=12000,
+        description="Comma-separated report UUIDs. Omit to export the full set.",
+    ),
     user: CurrentUser = Depends(require_admin),
 ) -> StreamingResponse:
-    """CSV export — lost items, found items, or successful handover report."""
+    """CSV export — lost items, found items, or successful handover report.
+
+    If ``ids`` is set, only those reports (or handovers involving them) are exported.
+    If ``ids`` is omitted, the full matching set is exported.
+    """
     _ = user
+    id_list = _parse_export_ids(ids)
     try:
-        csv_text, filename = await asyncio.to_thread(_build_export_csv, kind)
+        csv_text, filename = await asyncio.to_thread(_build_export_csv, kind, id_list)
     except Exception as exc:
         logger.exception("admin export failed")
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -559,6 +593,7 @@ def _list_admin_reports(
     search: str | None,
     status_filter: str | None,
     report_type: str | None,
+    category: str | None,
     limit: int,
     offset: int,
 ) -> list[dict]:
@@ -569,20 +604,32 @@ def _list_admin_reports(
                 """
                 SELECT r.id AS report_id, r.report_type, r.title, r.category, r.status,
                        r.user_id, u.email AS user_email, u.emergency_contact,
-                       r.created_at, r.updated_at
+                       r.created_at, r.updated_at, r.description, r.location_label,
+                       CASE WHEN r.location IS NULL THEN NULL
+                            ELSE ST_Y(r.location::geometry) END AS latitude,
+                       CASE WHEN r.location IS NULL THEN NULL
+                            ELSE ST_X(r.location::geometry) END AS longitude
                 FROM reports r
                 LEFT JOIN users u ON u.id = r.user_id
                 WHERE (:search IS NULL OR r.title ILIKE :pattern OR r.category ILIKE :pattern
-                       OR u.email ILIKE :pattern)
+                       OR u.email ILIKE :pattern OR r.description ILIKE :pattern)
                   AND (:status IS NULL OR r.status = :status)
                   AND (:report_type IS NULL OR r.report_type = :report_type)
+                  AND (:category IS NULL OR r.category ILIKE :cat_pattern)
                 ORDER BY r.created_at DESC
                 LIMIT :limit OFFSET :offset
                 """
             ),
-            {"search": search, "pattern": f"%{search}%" if search else None,
-             "status": status_filter, "report_type": report_type,
-             "limit": limit, "offset": offset},
+            {
+                "search": search,
+                "pattern": f"%{search}%" if search else None,
+                "status": status_filter,
+                "report_type": report_type,
+                "category": category,
+                "cat_pattern": f"%{category}%" if category else None,
+                "limit": limit,
+                "offset": offset,
+            },
         ).mappings().all()
         return [dict(row) for row in rows]
     finally:
@@ -664,18 +711,40 @@ def _list_audit_logs(limit: int, offset: int) -> list[dict]:
         session.close()
 
 
-def _build_export_csv(kind: str) -> tuple[str, str]:
+def _parse_export_ids(raw: str | None) -> list[UUID] | None:
+    if raw is None or not raw.strip():
+        return None
+    out: list[UUID] = []
+    seen: set[UUID] = set()
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        try:
+            uid = UUID(token)
+        except ValueError:
+            continue
+        if uid in seen:
+            continue
+        seen.add(uid)
+        out.append(uid)
+        if len(out) >= 500:
+            break
+    return out
+
+
+def _build_export_csv(kind: str, ids: list[UUID] | None = None) -> tuple[str, str]:
     """Build CSV text + filename for admin export."""
     import csv
     import io
 
     kind = (kind or "all").lower().strip()
+    restrict = ids is not None
+    id_strs = [str(x) for x in (ids or [])]
     session = get_session()
     try:
         if kind == "handovers":
-            rows = session.execute(
-                text(
-                    """
+            ho_sql = """
                     SELECT ca.id AS claim_attempt_id,
                            m.id AS match_id,
                            ra.id AS lost_report_id,
@@ -705,13 +774,22 @@ def _build_export_csv(kind: str) -> tuple[str, str]:
                     LEFT JOIN users ub ON ub.id = rb.user_id
                     LEFT JOIN verification_sessions vs ON vs.claim_attempt_id = ca.id
                     LEFT JOIN chat_rooms cr ON cr.match_id = m.id
-                    WHERE ca.status = 'passed'
-                       OR vs.decision = 'PASS'
-                    ORDER BY ca.created_at DESC
-                    LIMIT 5000
-                    """
-                )
-            ).mappings().all()
+                    WHERE (ca.status = 'passed' OR vs.decision = 'PASS')
+            """
+            if restrict:
+                if not id_strs:
+                    ho_sql += " AND FALSE"
+                    ho_stmt = text(ho_sql + " ORDER BY ca.created_at DESC LIMIT 5000")
+                    rows = session.execute(ho_stmt).mappings().all()
+                else:
+                    ho_sql += " AND (ra.id IN :ids OR rb.id IN :ids)"
+                    ho_stmt = text(
+                        ho_sql + " ORDER BY ca.created_at DESC LIMIT 5000"
+                    ).bindparams(bindparam("ids", expanding=True))
+                    rows = session.execute(ho_stmt, {"ids": id_strs}).mappings().all()
+            else:
+                ho_stmt = text(ho_sql + " ORDER BY ca.created_at DESC LIMIT 5000")
+                rows = session.execute(ho_stmt).mappings().all()
             fieldnames = [
                 "claim_attempt_id", "match_id",
                 "lost_report_id", "lost_title", "lost_category", "lost_status",
@@ -734,9 +812,7 @@ def _build_export_csv(kind: str) -> tuple[str, str]:
             else:
                 filename = f"verifind_all_reports_{_stamp()}.csv"
 
-            rows = session.execute(
-                text(
-                    """
+            rpt_sql = """
                     SELECT r.id AS report_id, r.report_type, r.title, r.category,
                            r.description, r.status, r.location_label,
                            r.user_id, u.email AS user_email,
@@ -745,12 +821,23 @@ def _build_export_csv(kind: str) -> tuple[str, str]:
                     FROM reports r
                     LEFT JOIN users u ON u.id = r.user_id
                     WHERE (:rtype IS NULL OR r.report_type = :rtype)
-                    ORDER BY r.created_at DESC
-                    LIMIT 10000
-                    """
-                ),
-                {"rtype": report_type},
-            ).mappings().all()
+            """
+            params: dict = {"rtype": report_type}
+            if restrict:
+                if not id_strs:
+                    rpt_sql += " AND FALSE"
+                    rpt_stmt = text(rpt_sql + " ORDER BY r.created_at DESC LIMIT 10000")
+                    rows = session.execute(rpt_stmt, params).mappings().all()
+                else:
+                    rpt_sql += " AND r.id IN :ids"
+                    rpt_stmt = text(
+                        rpt_sql + " ORDER BY r.created_at DESC LIMIT 10000"
+                    ).bindparams(bindparam("ids", expanding=True))
+                    params["ids"] = id_strs
+                    rows = session.execute(rpt_stmt, params).mappings().all()
+            else:
+                rpt_stmt = text(rpt_sql + " ORDER BY r.created_at DESC LIMIT 10000")
+                rows = session.execute(rpt_stmt, params).mappings().all()
             fieldnames = [
                 "report_id", "report_type", "title", "category", "description",
                 "status", "location_label", "user_id", "user_email",

@@ -7,6 +7,7 @@ import {
   type AdminReport, type AdminUser, type AuditLog, type ModerationEvent,
   type Overview, type ReviewDetail, type ReviewItem, type Suggestion,
 } from "./api";
+import ReportsBoard from "./ReportsBoard";
 
 type Page =
   | "overview" | "reports" | "users" | "suggestions"
@@ -236,11 +237,22 @@ export default function App() {
     });
   }
 
-  async function onExport(kind: "lost" | "found" | "handovers" | "all") {
-    await withLoad(`Exporting ${kind} CSV…`, async () => {
-      await downloadExport(kind);
-      flashNotice(`Downloaded ${kind} export.`);
-    });
+  async function onExport(
+    kind: "lost" | "found" | "handovers" | "all",
+    ids?: string[]
+  ) {
+    const scoped = ids && ids.length > 0;
+    await withLoad(
+      scoped ? `Exporting ${ids.length} selected (${kind})…` : `Exporting ${kind} CSV…`,
+      async () => {
+        await downloadExport(kind, scoped ? ids : undefined);
+        flashNotice(
+          scoped
+            ? `Downloaded ${kind} export (${ids.length} selected).`
+            : `Downloaded full ${kind} export.`
+        );
+      }
+    );
   }
 
   if (!loggedIn) {
@@ -506,7 +518,7 @@ type PageProps = {
   onRevealContact: (userId: string) => void;
   onResolveReport: (id: string, action: "approve" | "quarantine" | "remove") => void;
   onResolveModeration: (id: string) => void;
-  onExport: (kind: "lost" | "found" | "handovers" | "all") => void;
+  onExport: (kind: "lost" | "found" | "handovers" | "all", ids?: string[]) => void;
   go: (p: Page) => void;
 };
 
@@ -556,35 +568,19 @@ function PageView(p: PageProps) {
       <>
         <SectionIntro
           kicker="Community activity"
-          heading="All reports"
-          copy="Approve, quarantine, or remove flagged posts. Export lost, found, and successful handover CSVs anytime — including hidden closed posts."
+          heading="Lost & found board"
+          copy="Smart list or map of every report. Filter by type, status, and category. Photos are sanitized public images only — vault originals stay in the fraud queue."
         />
         {common}
-        <div className="export-bar">
-          <span className="eyebrow">Admin export</span>
-          <div className="row-actions">
-            <button className="mini-button" disabled={p.loading} onClick={() => p.onExport("lost")}>
-              Export lost
-            </button>
-            <button className="mini-button" disabled={p.loading} onClick={() => p.onExport("found")}>
-              Export found
-            </button>
-            <button className="mini-button ok" disabled={p.loading} onClick={() => p.onExport("handovers")}>
-              Export handovers
-            </button>
-            <button className="mini-button" disabled={p.loading} onClick={() => p.onExport("all")}>
-              Export all
-            </button>
-          </div>
-        </div>
         {p.loading && !p.reports.length ? (
           <SkeletonBoard label={p.loadingLabel} />
         ) : (
-          <ReportTable
+          <ReportsBoard
             rows={p.reports}
             busy={p.loading}
             onResolve={p.onResolveReport}
             onReveal={p.onRevealContact}
+            onExport={p.onExport}
           />
         )}
       </>
@@ -925,54 +921,6 @@ function SectionIntro({
       <span className="eyebrow">{kicker}</span>
       <h2>{heading}</h2>
       <p>{copy}</p>
-    </div>
-  );
-}
-
-function ReportTable({
-  rows,
-  busy,
-  onResolve,
-  onReveal,
-}: {
-  rows: AdminReport[];
-  busy: boolean;
-  onResolve: (id: string, action: "approve" | "quarantine" | "remove") => void;
-  onReveal: (userId: string) => void;
-}) {
-  return (
-    <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
-      <TableHead labels={["Report", "Type", "Owner", "Status", "Actions"]} cols="cols-actions" />
-      {rows.map((r) => (
-        <div className="data-row cols-actions" key={r.report_id}>
-          <div>
-            <strong>{r.title || "Untitled report"}</strong>
-            <small>{r.category || "No category"}</small>
-          </div>
-          <span className={`type type-${r.report_type.toLowerCase()}`}>{r.report_type}</span>
-          <span>{r.user_email || r.user_id.slice(0, 8)}</span>
-          <Status value={r.status} />
-          <div className="row-actions">
-            {r.status === "flagged" && (
-              <button className="mini-button" disabled={busy} onClick={() => onResolve(r.report_id, "approve")}>
-                Approve
-              </button>
-            )}
-            <button className="mini-button warn" disabled={busy} onClick={() => onResolve(r.report_id, "quarantine")}>
-              Flag
-            </button>
-            <button className="mini-button danger" disabled={busy} onClick={() => onResolve(r.report_id, "remove")}>
-              Remove
-            </button>
-            <button className="mini-button" disabled={busy} onClick={() => onReveal(r.user_id)}>
-              Contact
-            </button>
-          </div>
-        </div>
-      ))}
-      {!rows.length && (
-        <Empty text="No reports found." hint="Try clearing search, or create a report from the mobile app." />
-      )}
     </div>
   );
 }

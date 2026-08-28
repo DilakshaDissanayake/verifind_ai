@@ -29,6 +29,8 @@ dependencies:
   audioplayers: ^6.1.0
   path_provider: ^2.1.5
   path: ^1.9.0
+  flutter_map: ^8.1.1
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:
@@ -41,5 +43,3 @@ flutter:
   assets:
     - assets/images/logo.png
     - assets/board/
-  # Launcher source art lives in assets/images/app_image/ (see flutter_launcher_icons.yaml).
-  # Do not list that folder here — it is build-time only.

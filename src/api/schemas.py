@@ -433,6 +433,11 @@ class AdminReportOut(BaseModel):
     emergency_contact: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    description: Optional[str] = None
+    location_label: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    public_image_urls: list[str] = []
 
 
 class AdminReportListResponse(BaseModel):
