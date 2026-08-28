@@ -135,31 +135,30 @@ class _NearbyPageState extends State<NearbyPage> {
     setState(() => _selectedId = id);
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
       builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            AppSpacing.lg,
-            0,
-            AppSpacing.lg,
-            MediaQuery.viewPaddingOf(sheetContext).bottom + AppSpacing.lg,
-          ),
-          child: _NearbyReportCard(
-            item: item,
-            onFound: item['report_type'] == 'LOST'
-                ? () {
-                    Navigator.of(sheetContext).pop();
-                    _reportFoundFor(item);
-                  }
-                : null,
-            onOpenChat: (item['chat_room_id'] as String?) != null
-                ? () {
-                    Navigator.of(sheetContext).pop();
-                    _openChat(item['chat_room_id'] as String);
-                  }
-                : null,
-          ),
+        final chatId = item['chat_room_id'] as String?;
+        return _NearbyPinDetails(
+          item: item,
+          onClose: () => Navigator.of(sheetContext).pop(),
+          onFound: item['report_type'] == 'LOST'
+              ? () {
+                  Navigator.of(sheetContext).pop();
+                  _reportFoundFor(item);
+                }
+              : null,
+          onOpenChat: chatId != null
+              ? () {
+                  Navigator.of(sheetContext).pop();
+                  _openChat(chatId);
+                }
+              : null,
         );
       },
     );
@@ -659,6 +658,305 @@ class _NearbyReportCardState extends State<_NearbyReportCard> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Map-pin details panel — matches admin public fields (type, status,
+/// category, photos, area, distance) without vault/owner data.
+class _NearbyPinDetails extends StatefulWidget {
+  const _NearbyPinDetails({
+    required this.item,
+    required this.onClose,
+    this.onFound,
+    this.onOpenChat,
+  });
+
+  final Map<String, dynamic> item;
+  final VoidCallback onClose;
+  final VoidCallback? onFound;
+  final VoidCallback? onOpenChat;
+
+  @override
+  State<_NearbyPinDetails> createState() => _NearbyPinDetailsState();
+}
+
+class _NearbyPinDetailsState extends State<_NearbyPinDetails> {
+  final _pageController = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  List<String> get _urls {
+    final raw = widget.item['image_urls'];
+    if (raw is! List) return const [];
+    return raw.map((e) => e.toString()).where((u) => u.isNotEmpty).toList();
+  }
+
+  String _distanceLabel(double dist) {
+    return dist >= 1000
+        ? '${(dist / 1000).toStringAsFixed(2)} km away'
+        : '${dist.toStringAsFixed(0)} m away';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusColors = theme.extension<AppStatusColors>()!;
+    final item = widget.item;
+    final type = item['report_type'] as String? ?? '';
+    final title = item['title'] as String? ?? '(no title)';
+    final dist = (item['distance_m'] as num?)?.toDouble();
+    final status = item['status'] as String? ?? '';
+    final category = (item['category'] as String?)?.trim();
+    final area = (item['location_label'] as String?)?.trim();
+    final claimStatus = (item['claim_status'] as String? ?? '').toLowerCase();
+    final decision = (item['verification_decision'] as String? ?? '')
+        .toUpperCase();
+    final urls = _urls;
+
+    final isPass = claimStatus == 'passed' || decision == 'PASS';
+    final isReview = claimStatus == 'review' || decision == 'REVIEW';
+    final isBlocked = claimStatus == 'blocked' || decision == 'BLOCK';
+    final hasChat = widget.onOpenChat != null;
+    final showFound = widget.onFound != null && !isPass && !isReview;
+
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 168,
+                child: urls.isEmpty
+                    ? ColoredBox(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              AppIcons.imageBroken,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.4,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Photo pending',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      )
+                    : Stack(
+                        alignment: Alignment.bottomCenter,
+                        children: [
+                          PageView.builder(
+                            controller: _pageController,
+                            itemCount: urls.length,
+                            onPageChanged: (i) => setState(() => _page = i),
+                            itemBuilder: (context, index) {
+                              return NetworkImageFrame(
+                                url: urls[index],
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: 168,
+                              );
+                            },
+                          ),
+                          if (urls.length > 1)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: List.generate(urls.length, (i) {
+                                  final active = i == _page;
+                                  return Container(
+                                    width: active ? 8 : 6,
+                                    height: active ? 8 : 6,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: active
+                                          ? Colors.white
+                                          : Colors.white54,
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ),
+                        ],
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.md,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Public details',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: AppColors.brand,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                title,
+                                style: theme.textTheme.titleLarge,
+                              ),
+                            ],
+                          ),
+                        ),
+                        HeaderIconButton(
+                          icon: Icons.close_rounded,
+                          tooltip: 'Close',
+                          onPressed: widget.onClose,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (type.isNotEmpty)
+                          StatusPill.reportType(context, type),
+                        if (status.isNotEmpty)
+                          StatusPill.reportStatus(context, status),
+                        if (category != null && category.isNotEmpty)
+                          StatusPill(
+                            label: category,
+                            color: statusColors.info,
+                            icon: AppIcons.tag,
+                            dense: true,
+                          ),
+                        if (isPass)
+                          StatusPill(
+                            label: 'PASS',
+                            color: statusColors.success,
+                            icon: AppIcons.checkCircle,
+                            dense: true,
+                          )
+                        else if (isReview)
+                          StatusPill(
+                            label: 'REVIEW',
+                            color: statusColors.warning,
+                            icon: AppIcons.clock,
+                            dense: true,
+                          )
+                        else if (isBlocked)
+                          StatusPill(
+                            label: 'BLOCKED',
+                            color: statusColors.danger,
+                            icon: AppIcons.xCircle,
+                            dense: true,
+                          ),
+                      ],
+                    ),
+                    if (dist != null || (area != null && area.isNotEmpty)) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      if (dist != null)
+                        Row(
+                          children: [
+                            Icon(
+                              AppIcons.distance,
+                              size: 14,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _distanceLabel(dist),
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      if (area != null && area.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              AppIcons.mapPin,
+                              size: 14,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                area,
+                                style: theme.textTheme.bodySmall,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      'Map pins are privacy-fuzzed. Exact location is never shown.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.55,
+                        ),
+                      ),
+                    ),
+                    if (hasChat || showFound) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      if (hasChat)
+                        FilledButton(
+                          onPressed: widget.onOpenChat,
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(AppIcons.chat, size: 18),
+                              SizedBox(width: 8),
+                              Text('Open chat'),
+                            ],
+                          ),
+                        )
+                      else
+                        FilledButton.tonal(
+                          onPressed: widget.onFound,
+                          child: const Text('I found this'),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -20,6 +20,7 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
   bool _obscure = true;
 
   @override
@@ -27,6 +28,14 @@ class _LoginPageState extends State<LoginPage> {
     _email.dispose();
     _password.dispose();
     super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      _showErrorSnack(context, 'Please enter your email and password');
+      return;
+    }
+    context.read<AuthCubit>().login(_email.text.trim(), _password.text);
   }
 
   @override
@@ -39,9 +48,7 @@ class _LoginPageState extends State<LoginPage> {
         child: BlocConsumer<AuthCubit, AuthState>(
           listener: (context, state) {
             if (state is AuthError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(_safeLoginError(state.message))),
-              );
+              _showErrorSnack(context, _safeLoginError(state.message));
             }
           },
           builder: (context, state) {
@@ -50,14 +57,16 @@ class _LoginPageState extends State<LoginPage> {
                 ? _safeLoginError(state.message)
                 : null;
 
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xl,
-                AppSpacing.xxxl,
-                AppSpacing.xl,
-                AppSpacing.xl,
-              ),
-              children: [
+            return Form(
+              key: _formKey,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.xxxl,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                ),
+                children: [
                 Container(
                       padding: const EdgeInsets.all(AppSpacing.lg),
                       decoration: BoxDecoration(
@@ -87,19 +96,28 @@ class _LoginPageState extends State<LoginPage> {
                   _ErrorBanner(message: error, color: statusColors.danger),
                   const SizedBox(height: AppSpacing.lg),
                 ],
-                TextField(
+                TextFormField(
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
                   autocorrect: false,
+                  textInputAction: TextInputAction.next,
                   decoration: InputDecoration(
                     labelText: 'Email',
                     prefixIcon: Icon(AppIcons.email, size: 20),
                   ),
+                  validator: (v) {
+                    final value = v?.trim() ?? '';
+                    if (value.isEmpty) return 'Email is required';
+                    if (!value.contains('@')) return 'Enter a valid email';
+                    return null;
+                  },
                 ).animate().fadeIn(delay: 160.ms, duration: 380.ms),
                 const SizedBox(height: AppSpacing.md),
-                TextField(
+                TextFormField(
                   controller: _password,
                   obscureText: _obscure,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: loading ? null : (_) => _submit(),
                   decoration: InputDecoration(
                     labelText: 'Password',
                     prefixIcon: Icon(AppIcons.lock, size: 20),
@@ -111,6 +129,10 @@ class _LoginPageState extends State<LoginPage> {
                       onPressed: () => setState(() => _obscure = !_obscure),
                     ),
                   ),
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Password is required';
+                    return null;
+                  },
                 ).animate().fadeIn(delay: 200.ms, duration: 380.ms),
                 Align(
                   alignment: Alignment.centerRight,
@@ -123,12 +145,7 @@ class _LoginPageState extends State<LoginPage> {
                 ).animate().fadeIn(delay: 220.ms, duration: 380.ms),
                 const SizedBox(height: AppSpacing.md),
                 FilledButton(
-                  onPressed: loading
-                      ? null
-                      : () => context.read<AuthCubit>().login(
-                          _email.text.trim(),
-                          _password.text,
-                        ),
+                  onPressed: loading ? null : _submit,
                   child: loading
                       ? const SizedBox(
                           width: 20,
@@ -166,7 +183,8 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-              ],
+                ],
+              ),
             );
           },
         ),
@@ -231,9 +249,7 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _sending = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ApiClient.friendlyError(e))),
-      );
+      _showErrorSnack(context, ApiClient.friendlyError(e));
     }
   }
 
@@ -292,6 +308,20 @@ class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
       ],
     );
   }
+}
+
+void _showErrorSnack(BuildContext context, String message) {
+  final danger = Theme.of(context).extension<AppStatusColors>()?.danger ??
+      AppColors.danger;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      backgroundColor: danger,
+      content: Text(
+        message,
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      ),
+    ),
+  );
 }
 
 String _safeLoginError(String message) {

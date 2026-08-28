@@ -52,7 +52,7 @@ class VerifindApp extends StatelessWidget {
       create: (_) => ApiClient(
         baseUrl: const String.fromEnvironment(
           'API_BASE_URL',
-          defaultValue: 'http://10.0.2.2:8000',
+          defaultValue: 'http://192.168.1.3:8000',
         ),
       ),
       child: BlocProvider(
