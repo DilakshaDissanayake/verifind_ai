@@ -10,6 +10,8 @@ import 'design/app_spacing.dart';
 import 'design/app_theme.dart';
 import 'core/api_client.dart';
 import 'core/app_prefs.dart';
+import 'core/local_notifications.dart';
+import 'core/location_service.dart';
 import 'features/auth/account_status_cubit.dart';
 import 'features/auth/auth_cubit.dart';
 import 'features/auth/login_page.dart';
@@ -25,8 +27,9 @@ import 'features/reports/my_reports_page.dart';
 import 'features/reports/nearby_page.dart';
 import 'widgets/dock_nav.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await LocalNotifications.instance.init();
   // Draw behind system bars so SafeArea / viewPadding can reserve real insets
   // (avoids Android nav bar overlapping the floating dock).
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -52,7 +55,7 @@ class VerifindApp extends StatelessWidget {
       create: (_) => ApiClient(
         baseUrl: const String.fromEnvironment(
           'API_BASE_URL',
-          defaultValue: 'http://192.168.1.3:8000',
+          defaultValue: 'http://192.168.1.4:8000',
         ),
       ),
       child: BlocProvider(
@@ -65,7 +68,9 @@ class VerifindApp extends StatelessWidget {
           darkTheme: AppTheme.dark(),
           builder: (context, child) {
             return AnnotatedRegion<SystemUiOverlayStyle>(
-              value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
+              value: SystemUiOverlayStyle.dark.copyWith(
+                statusBarColor: Colors.transparent,
+              ),
               child: child ?? const SizedBox.shrink(),
             );
           },
@@ -119,7 +124,10 @@ class _RootGateState extends State<_RootGate> {
     final Widget child;
     switch (_phase) {
       case _Phase.splash:
-        child = SplashPage(key: const ValueKey('splash'), onComplete: _onSplashDone);
+        child = SplashPage(
+          key: const ValueKey('splash'),
+          onComplete: _onSplashDone,
+        );
         break;
       case _Phase.onboarding:
         child = OnboardingPage(
@@ -174,10 +182,13 @@ class _HomeShell extends StatefulWidget {
   State<_HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<_HomeShell> {
+class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
   int _tab = 0;
   Timer? _poll;
   Timer? _accountPoll;
+  Timer? _locationPing;
+  NotificationsCubit? _notifCubit;
+  ApiClient? _api;
 
   static const _pages = [
     MyReportsPage(),
@@ -188,18 +199,53 @@ class _HomeShellState extends State<_HomeShell> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _accountPoll?.cancel();
+    _locationPing?.cancel();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    _notifCubit?.load(silent: true);
+    _pingLocation();
+  }
+
   void _startPoll(NotificationsCubit cubit) {
+    _notifCubit = cubit;
     _poll?.cancel();
     _poll = Timer.periodic(const Duration(seconds: 8), (_) {
       if (!mounted) return;
       cubit.load(silent: true);
     });
+  }
+
+  void _startLocationPing(ApiClient api) {
+    _api = api;
+    _locationPing?.cancel();
+    _pingLocation();
+    _locationPing = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (!mounted) return;
+      _pingLocation();
+    });
+  }
+
+  Future<void> _pingLocation() async {
+    final api = _api;
+    if (api == null) return;
+    try {
+      final loc = await LocationService().currentFuzzed();
+      await api.pingLocation(lat: loc.lat, lon: loc.lon);
+    } catch (_) {}
   }
 
   void _startAccountPoll(AccountStatusCubit cubit) {
@@ -230,6 +276,7 @@ class _HomeShellState extends State<_HomeShell> {
           create: (ctx) {
             final cubit = NotificationsCubit(ctx.read<ApiClient>())..load();
             _startPoll(cubit);
+            _startLocationPing(ctx.read<ApiClient>());
             return cubit;
           },
         ),
@@ -245,7 +292,16 @@ class _HomeShellState extends State<_HomeShell> {
         builder: (ctx) {
           final blocked = ctx.watch<AccountStatusCubit>().state.isBlocked;
           final statusColors = Theme.of(ctx).extension<AppStatusColors>()!;
-          return Scaffold(
+          return BlocListener<NotificationsCubit, NotificationsState>(
+            listenWhen: (prev, next) =>
+                next is NotificationsLoaded && next.newlyArrived.isNotEmpty,
+            listener: (context, state) {
+              final loaded = state as NotificationsLoaded;
+              for (final item in loaded.newlyArrived) {
+                LocalNotifications.instance.showFromItem(item);
+              }
+            },
+            child: Scaffold(
             extendBody: true,
             body: Column(
               children: [
@@ -320,17 +376,20 @@ class _HomeShellState extends State<_HomeShell> {
                   ),
             bottomNavigationBar:
                 BlocBuilder<NotificationsCubit, NotificationsState>(
-              builder: (bctx, notifState) {
-                final unread =
-                    notifState is NotificationsLoaded ? notifState.unreadCount : 0;
-                final notifCubit = bctx.read<NotificationsCubit>();
-                final accountCubit = bctx.read<AccountStatusCubit>();
-                return DockNav(
-                  index: _tab,
-                  unread: unread,
-                  onSelect: (i) => _onTabSelected(i, notifCubit, accountCubit),
-                );
-              },
+                  builder: (bctx, notifState) {
+                    final unread = notifState is NotificationsLoaded
+                        ? notifState.unreadCount
+                        : 0;
+                    final notifCubit = bctx.read<NotificationsCubit>();
+                    final accountCubit = bctx.read<AccountStatusCubit>();
+                    return DockNav(
+                      index: _tab,
+                      unread: unread,
+                      onSelect: (i) =>
+                          _onTabSelected(i, notifCubit, accountCubit),
+                    );
+                  },
+                ),
             ),
           );
         },

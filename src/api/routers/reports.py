@@ -15,6 +15,8 @@ from api.schemas import (
     AITagsOut,
     NearbyHitOut,
     NearbyResponse,
+    ReportCloseRequest,
+    ReportCloseResponse,
     ReportCreateRequest,
     ReportCreateResponse,
     ReportImageOut,
@@ -120,6 +122,29 @@ async def create_report(
         record.report_type,
         user.id,
     )
+    try:
+        from services.notification_service import notify_nearby_post
+        from services.user_service import update_last_location
+
+        if record.latitude is not None and record.longitude is not None:
+            await asyncio.to_thread(
+                update_last_location,
+                record.user_id,
+                record.latitude,
+                record.longitude,
+                apply_fuzz=False,
+            )
+        await asyncio.to_thread(
+            notify_nearby_post,
+            poster_user_id=record.user_id,
+            report_id=record.id,
+            report_type=record.report_type,
+            title=record.title,
+            lat=record.latitude,
+            lon=record.longitude,
+        )
+    except Exception as exc:
+        logger.warning("nearby post alerts skipped report={}: {}", record.id, exc)
     enqueued = await enqueue_process_report_ai(
         report_id=str(record.id),
         user_id=user.id,
@@ -328,6 +353,48 @@ async def patch_report(
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _to_out(rec)
+
+
+@router.post("/{report_id}/close", response_model=ReportCloseResponse)
+async def close_report(
+    report_id: UUID,
+    body: ReportCloseRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportCloseResponse:
+    """Owner self-find or withdraw — hide from public feeds. Does not delete."""
+    try:
+        rec, already, chats_closed = await asyncio.to_thread(
+            report_service.close_owner_report,
+            report_id=report_id,
+            auth_user_id=user.id,
+            email=user.email,
+            reason=body.reason,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if already:
+        msg = "This listing is already closed and hidden from public feeds."
+    elif body.reason == "self_found":
+        msg = (
+            "Marked as found by you. The post is hidden from Nearby and matching "
+            "but kept for admin records — it is not deleted."
+        )
+    else:
+        msg = (
+            "Listing taken down. It is hidden from Nearby and matching "
+            "but kept for admin records — it is not deleted."
+        )
+    return ReportCloseResponse(
+        report_id=rec.id,
+        status=rec.status,
+        reason=body.reason,
+        already_closed=already,
+        chats_closed=chats_closed,
+        message=msg,
+    )
 
 
 @router.post(

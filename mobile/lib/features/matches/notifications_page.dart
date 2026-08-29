@@ -97,7 +97,7 @@ class _NotificationsView extends StatelessWidget {
                         icon: AppIcons.bellOff,
                         title: 'No notifications yet',
                         message:
-                            'When a HIGH or MEDIUM match is found, you\u2019ll be notified here.',
+                            'When someone posts within 5 km, or a match is found, you\u2019ll be notified here.',
                       );
                     }
                     return ListView.separated(
@@ -141,6 +141,7 @@ class _NotificationsView extends StatelessWidget {
                             );
                             return;
                           }
+                          if (type == 'nearby_post') return;
                           if (reportId != null) {
                             Navigator.of(context).push(
                               MaterialPageRoute(
@@ -180,12 +181,16 @@ class _NotifCard extends StatelessWidget {
     final isRead = item['is_read'] as bool? ?? false;
     final distM = (item['distance_m'] as num?)?.toDouble();
     final type = item['type'] as String? ?? 'match_found';
+    final preview = (item['preview'] as String?)?.trim();
 
     late final Color color;
     late final IconData icon;
     if (type == 'chat_ready' || type == 'chat_message') {
       color = statusColors.success;
       icon = AppIcons.chat;
+    } else if (type == 'nearby_post') {
+      color = statusColors.info;
+      icon = AppIcons.nearby();
     } else {
       switch (band) {
         case 'HIGH':
@@ -222,15 +227,15 @@ class _NotifCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  type == 'chat_ready'
-                      ? 'Chat ready \u00b7 tap to open'
-                      : type == 'chat_message'
-                      ? 'New message \u00b7 tap to open'
-                      : '$band match \u00b7 ${score.toStringAsFixed(0)}%',
+                  _titleFor(type, band, score),
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: isRead ? FontWeight.w600 : FontWeight.w800,
                   ),
                 ),
+                if (preview != null && preview.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(preview, style: theme.textTheme.bodySmall),
+                ],
                 if (distM != null) ...[
                   const SizedBox(height: 2),
                   Text(
@@ -253,5 +258,15 @@ class _NotifCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _titleFor(String type, String band, double score) {
+    if (type == 'chat_ready') return 'Chat ready \u00b7 tap to open';
+    if (type == 'chat_message') return 'New message \u00b7 tap to open';
+    if (type == 'nearby_post') {
+      final kind = band == 'FOUND' ? 'found item' : 'lost item';
+      return 'New $kind nearby';
+    }
+    return '$band match \u00b7 ${score.toStringAsFixed(0)}%';
   }
 }

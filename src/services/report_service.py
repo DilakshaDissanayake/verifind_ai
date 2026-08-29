@@ -258,3 +258,125 @@ def set_report_status(report_id: UUID, status_value: str) -> None:
         raise
     finally:
         session.close()
+
+
+def close_owner_report(
+    *,
+    report_id: UUID,
+    auth_user_id: str,
+    email: Optional[str] = None,
+    reason: str = "self_found",
+) -> tuple[ReportRecord, bool, int]:
+    """Owner self-find / withdraw: status=closed. Never hard-deletes.
+
+    Hides the post from Nearby + matching. Related chats are deactivated.
+    The counterpart FOUND/LOST listing is left open (different item / still held).
+
+    Returns (record, already_closed, chats_closed).
+    """
+    from loguru import logger
+
+    if reason not in ("self_found", "withdrawn"):
+        raise HTTPException(status_code=400, detail="Invalid close reason")
+
+    app_user_id = ensure_app_user(auth_user_id=auth_user_id, email=email)
+    existing = get_report(report_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if existing.user_id != app_user_id:
+        raise HTTPException(status_code=403, detail="Not report owner")
+    if existing.status == "flagged":
+        raise HTTPException(
+            status_code=409,
+            detail="This report is flagged for review and cannot be closed here",
+        )
+    if existing.status == "closed":
+        return existing, True, 0
+
+    set_report_status(report_id, "closed")
+    chats_closed = _deactivate_chats_for_report(
+        report_id=report_id,
+        actor_id=app_user_id,
+        reason=reason,
+    )
+
+    try:
+        from services.admin_service import _write_audit
+
+        _write_audit(
+            actor_id=app_user_id,
+            action="report_owner_close",
+            entity_type="report",
+            entity_id=report_id,
+            meta={"reason": reason, "chats_closed": chats_closed},
+        )
+    except Exception as exc:
+        logger.warning("owner-close audit failed: {}", exc)
+
+    updated = get_report(report_id)
+    assert updated is not None
+    return updated, False, chats_closed
+
+
+def _deactivate_chats_for_report(
+    *,
+    report_id: UUID,
+    actor_id: UUID,
+    reason: str,
+) -> int:
+    """Close open handover chats tied to this listing. Does not close the other report."""
+    from loguru import logger
+
+    session = get_session()
+    room_ids: list[UUID] = []
+    try:
+        rows = session.execute(
+            text(
+                """
+                SELECT cr.id
+                FROM chat_rooms cr
+                JOIN matches m ON m.id = cr.match_id
+                WHERE cr.is_active = true
+                  AND (m.report_a_id = :rid OR m.report_b_id = :rid)
+                """
+            ),
+            {"rid": str(report_id)},
+        ).mappings().all()
+        room_ids = [UUID(str(r["id"])) for r in rows]
+        for rid in room_ids:
+            session.execute(
+                text("UPDATE chat_rooms SET is_active = false WHERE id = :id"),
+                {"id": str(rid)},
+            )
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        logger.warning("deactivate chats for report {} failed: {}", report_id, exc)
+        return 0
+    finally:
+        session.close()
+
+    if not room_ids:
+        return 0
+
+    body = (
+        "The owner found this item themselves. The listing is no longer public "
+        "and this chat is closed."
+        if reason == "self_found"
+        else "The poster took this listing down. The listing is no longer public "
+        "and this chat is closed."
+    )
+    try:
+        from services.chat_service import save_message
+
+        for rid in room_ids:
+            save_message(
+                room_id=rid,
+                sender_id=actor_id,
+                body=body,
+                message_type="system",
+            )
+    except Exception as exc:
+        logger.warning("owner-close system messages failed: {}", exc)
+
+    return len(room_ids)

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -95,7 +96,7 @@ class _MyReportsPageState extends State<MyReportsPage> {
         .length;
     final activeN = _reports.where((r) {
       final s = (r['status'] as String? ?? '').toLowerCase();
-      return s == 'active' || s == 'matched' || s == 'closed';
+      return s == 'active' || s == 'processing' || s == 'pending';
     }).length;
 
     return Scaffold(
@@ -218,7 +219,10 @@ class _MyReportsPageState extends State<MyReportsPage> {
                         separatorBuilder: (_, __) =>
                             const SizedBox(height: AppSpacing.md),
                         itemBuilder: (context, i) =>
-                            _ReportCard(report: items[i])
+                            _ReportCard(
+                                  report: items[i],
+                                  onClosed: _load,
+                                )
                                 .animate()
                                 .fadeIn(delay: (i * 40).ms, duration: 280.ms)
                                 .slideY(
@@ -236,96 +240,317 @@ class _MyReportsPageState extends State<MyReportsPage> {
   }
 }
 
-class _ReportCard extends StatelessWidget {
-  const _ReportCard({required this.report});
+class _ReportCard extends StatefulWidget {
+  const _ReportCard({required this.report, required this.onClosed});
   final Map<String, dynamic> report;
+  final VoidCallback onClosed;
+
+  @override
+  State<_ReportCard> createState() => _ReportCardState();
+}
+
+class _ReportCardState extends State<_ReportCard> {
+  bool _closing = false;
+
+  bool get _canClose {
+    final s = (widget.report['status'] as String? ?? '').toLowerCase();
+    return s != 'closed' && s != 'flagged';
+  }
+
+  bool get _isLost {
+    final type = widget.report['report_type'] as String? ?? '';
+    return type.toUpperCase() == 'LOST';
+  }
+
+  Future<void> _confirmClose() async {
+    if (_closing || !_canClose) return;
+    final isLost = _isLost;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isLost ? 'You found it yourself?' : 'Take down this listing?'),
+        content: Text(
+          isLost
+              ? 'This hides your lost post from Nearby and matching. '
+                    'It is not deleted — admins can still see it. '
+                    'Open chats for this listing will close.'
+              : 'This hides your found post from Nearby and matching. '
+                    'It is not deleted — admins can still see it. '
+                    'Open chats for this listing will close.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep posted'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isLost ? 'I found it' : 'Take down'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _close();
+  }
+
+  Future<void> _close() async {
+    final id = widget.report['report_id'] as String? ?? '';
+    if (id.isEmpty) return;
+    setState(() => _closing = true);
+    try {
+      final api = context.read<ApiClient>();
+      final res = await api.closeReport(
+        id,
+        reason: _isLost ? 'self_found' : 'withdrawn',
+      );
+      if (!mounted) return;
+      final msg = res['message'] as String? ??
+          (_isLost
+              ? 'Hidden from Nearby — not deleted.'
+              : 'Listing taken down — not deleted.');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      widget.onClosed();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _closing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ApiClient.friendlyError(e))),
+      );
+    }
+  }
+
+  void _openAiStatus(String id, String title) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RepositoryProvider.value(
+          value: context.read<ApiClient>(),
+          child: AIStatusPage(reportId: id, reportTitle: title),
+        ),
+      ),
+    );
+  }
+
+  void _openMatches(String id, String title) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RepositoryProvider.value(
+          value: context.read<ApiClient>(),
+          child: MatchesPage(reportId: id, reportTitle: title),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final id = report['report_id'] as String? ?? '';
-    final type = report['report_type'] as String? ?? '';
-    final title = report['title'] as String? ?? 'Untitled';
-    final category = report['category'] as String?;
-    final status = report['status'] as String? ?? 'pending';
-    final isLost = type.toUpperCase() == 'LOST';
+    final statusColors = theme.extension<AppStatusColors>()!;
+    final id = widget.report['report_id'] as String? ?? '';
+    final type = widget.report['report_type'] as String? ?? '';
+    final title = widget.report['title'] as String? ?? 'Untitled';
+    final category = widget.report['category'] as String?;
+    final status = widget.report['status'] as String? ?? 'pending';
+    final isLost = _isLost;
+
+    final actions = <_ArcAction>[
+      _ArcAction(
+        icon: AppIcons.sparkle,
+        label: 'AI',
+        tooltip: 'AI status',
+        onTap: () => _openAiStatus(id, title),
+      ),
+      _ArcAction(
+        icon: AppIcons.matches,
+        label: 'Match',
+        tooltip: 'Matches',
+        onTap: () => _openMatches(id, title),
+      ),
+      if (_canClose)
+        _ArcAction(
+          icon: isLost ? AppIcons.checkCircle : AppIcons.trash,
+          label: isLost ? 'Found it' : 'Take down',
+          tooltip: isLost ? 'I found it myself' : 'Take down listing',
+          emphasized: true,
+          busy: _closing,
+          onTap: _closing ? null : _confirmClose,
+        ),
+    ];
 
     return AppCard(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: isLost
-                  ? AppColors.lost.withValues(alpha: 0.35)
-                  : AppColors.brandSoft,
-              borderRadius: BorderRadius.circular(AppRadius.md),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              isLost ? AppIcons.lost : AppIcons.found,
-              color: AppColors.ink,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.titleSmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: AppSpacing.xs,
-                  runSpacing: AppSpacing.xs,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    StatusPill.reportType(context, type),
-                    StatusPill.reportStatus(context, status),
-                    if (category != null)
-                      Text(category, style: theme.textTheme.bodySmall),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Column(
+          Row(
             children: [
-              IconButton(
-                icon: Icon(AppIcons.sparkle, size: 20),
-                tooltip: 'AI Status',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => RepositoryProvider.value(
-                      value: context.read<ApiClient>(),
-                      child: AIStatusPage(reportId: id, reportTitle: title),
-                    ),
-                  ),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isLost
+                      ? statusColors.lost.withValues(alpha: 0.28)
+                      : statusColors.mintSoft,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  isLost ? AppIcons.lost : AppIcons.found,
+                  color: statusColors.ink,
+                  size: 22,
                 ),
               ),
-              IconButton(
-                icon: Icon(AppIcons.matches, size: 20),
-                tooltip: 'Matches',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => RepositoryProvider.value(
-                      value: context.read<ApiClient>(),
-                      child: MatchesPage(reportId: id, reportTitle: title),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: AppSpacing.xs,
+                      runSpacing: AppSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        StatusPill.reportType(context, type),
+                        StatusPill.reportStatus(context, status),
+                        if (category != null)
+                          Text(category, style: theme.textTheme.bodySmall),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          _ActionArc(actions: actions),
         ],
+      ),
+    );
+  }
+}
+
+class _ArcAction {
+  const _ArcAction({
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    this.onTap,
+    this.emphasized = false,
+    this.busy = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final bool emphasized;
+  final bool busy;
+}
+
+/// Mini dock on the card: circular slots in a pill track.
+class _ActionArc extends StatelessWidget {
+  const _ActionArc({required this.actions});
+  final List<_ArcAction> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColors = Theme.of(context).extension<AppStatusColors>()!;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: statusColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Row(
+          children: [
+            for (final action in actions)
+              Expanded(child: _ArcSlot(action: action)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ArcSlot extends StatelessWidget {
+  const _ArcSlot({required this.action});
+  final _ArcAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusColors = theme.extension<AppStatusColors>()!;
+    final fill = action.emphasized ? AppColors.brand : Colors.transparent;
+    final iconColor = action.emphasized ? Colors.white : statusColors.ink;
+
+    return Tooltip(
+      message: action.tooltip,
+      child: InkWell(
+        onTap: action.busy
+            ? null
+            : () {
+                HapticFeedback.selectionClick();
+                action.onTap?.call();
+              },
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 36,
+                height: 36,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: fill,
+                    shape: BoxShape.circle,
+                    border: action.emphasized
+                        ? null
+                        : Border.all(color: statusColors.border, width: 1),
+                  ),
+                  child: Center(
+                    child: action.busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(action.icon, size: 18, color: iconColor),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                action.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: action.emphasized
+                      ? AppColors.brand
+                      : theme.textTheme.bodySmall?.color,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

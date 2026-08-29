@@ -88,6 +88,16 @@ async def start_claim(
             "questions": [],
         }
 
+    closed_reason = _closed_match_reason(match_id)
+    if closed_reason:
+        return {
+            "allowed": False,
+            "reason": closed_reason,
+            "claim_attempt_id": None,
+            "verification_session_id": None,
+            "questions": [],
+        }
+
     # --- Already decided? Don't allow re-claim ---
     existing = _latest_claim_for_match(match_id)
     if existing is not None:
@@ -587,6 +597,32 @@ def _notify_pass_chat(
             match_id=match_id,
             chat_room_id=chat_room_id,
         )
+
+
+def _closed_match_reason(match_id: UUID) -> Optional[str]:
+    """Block new claims when either listing was closed (self-find / handover / withdraw)."""
+    session = get_session()
+    try:
+        rows = session.execute(
+            text(
+                """
+                SELECT r.status
+                FROM matches m
+                JOIN reports r ON r.id IN (m.report_a_id, m.report_b_id)
+                WHERE m.id = :mid
+                """
+            ),
+            {"mid": str(match_id)},
+        ).mappings().all()
+    finally:
+        session.close()
+    statuses = {(row["status"] or "").lower() for row in rows}
+    if "closed" in statuses:
+        return "This listing is closed (found or taken down) and cannot be claimed."
+    if "flagged" in statuses:
+        return "This listing is under review and cannot be claimed."
+    return None
+
 
 def _get_report_category(report_id: UUID) -> Optional[str]:
     session = get_session()

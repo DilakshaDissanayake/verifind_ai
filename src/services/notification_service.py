@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from loguru import logger
 from sqlalchemy import text
 
+from infrastructure.config import GEO_RADIUS_M
 from infrastructure.db.sql_client import get_session
 
 
@@ -77,6 +78,64 @@ def notify_chat_ready(
         return False
 
 
+def notify_nearby_post(
+    *,
+    poster_user_id: UUID,
+    report_id: UUID,
+    report_type: str,
+    title: Optional[str] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    radius_m: int = GEO_RADIUS_M,
+) -> int:
+    """Alert other users within radius_m of a newly created report. Fail-soft."""
+    if lat is None or lon is None:
+        return 0
+    try:
+        from services.geo_service import nearby_users_to_notify
+
+        nearby = nearby_users_to_notify(
+            lat,
+            lon,
+            exclude_user_id=poster_user_id,
+            radius_m=radius_m,
+        )
+        preview = (title or "").strip()[:80] or f"New {report_type.lower()} nearby"
+        created = 0
+        for hit in nearby:
+            ok = _insert_typed_notification(
+                user_id=hit.user_id,
+                notif_type="nearby_post",
+                match_id=None,
+                report_id=report_id,
+                matched_report_id=None,
+                band=report_type,
+                score=1.0,
+                distance_m=hit.distance_m,
+                dedupe_on_match=False,
+                dedupe_on_report=True,
+                payload_preview=preview,
+            )
+            if ok:
+                created += 1
+        if created:
+            logger.info(
+                "nearby_post alerts created={} report={} type={}",
+                created,
+                report_id,
+                report_type,
+            )
+        return created
+    except Exception as exc:
+        logger.warning(
+            "notify_nearby_post failed report={} poster={}: {}",
+            report_id,
+            poster_user_id,
+            exc,
+        )
+        return 0
+
+
 def notify_chat_message(
     *,
     recipient_id: UUID,
@@ -128,6 +187,7 @@ def _insert_typed_notification(
     distance_m: Optional[float],
     chat_room_id: Optional[UUID] = None,
     dedupe_on_match: bool = False,
+    dedupe_on_report: bool = False,
     payload_preview: Optional[str] = None,
 ) -> bool:
     """Insert notification; sets both `type` and legacy `kind` when present."""
@@ -147,6 +207,26 @@ def _insert_typed_notification(
                 {
                     "uid": str(user_id),
                     "mid": str(match_id),
+                    "ntype": notif_type,
+                },
+            ).mappings().first()
+            if existing:
+                return False
+
+        if dedupe_on_report and report_id is not None:
+            existing = session.execute(
+                text(
+                    """
+                    SELECT id FROM notifications
+                    WHERE user_id = :uid
+                      AND report_id = :rid
+                      AND type = :ntype
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "uid": str(user_id),
+                    "rid": str(report_id),
                     "ntype": notif_type,
                 },
             ).mappings().first()
@@ -264,12 +344,14 @@ def get_user_notifications(
     try:
         extra = "AND is_read = false" if unread_only else ""
         has_chat_room = _column_exists(session, "notifications", "chat_room_id")
+        has_payload = _column_exists(session, "notifications", "payload")
         chat_col = ", chat_room_id" if has_chat_room else ""
+        payload_col = ", payload" if has_payload else ""
         rows = session.execute(
             text(
                 f"""
                 SELECT id, type, match_id, report_id, matched_report_id,
-                       band, score, distance_m, is_read, created_at{chat_col}
+                       band, score, distance_m, is_read, created_at{chat_col}{payload_col}
                 FROM notifications
                 WHERE user_id = :uid {extra}
                 ORDER BY created_at DESC
@@ -286,8 +368,25 @@ def get_user_notifications(
         d = dict(r)
         if "chat_room_id" not in d:
             d["chat_room_id"] = None
+        d["preview"] = _payload_preview(d.pop("payload", None))
         out.append(d)
     return out
+
+
+def _payload_preview(payload: object) -> Optional[str]:
+    if isinstance(payload, str):
+        try:
+            import json
+
+            payload = json.loads(payload)
+        except Exception:
+            return None
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get("preview")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()[:120]
+    return None
 
 
 def mark_notification_read(notif_id: UUID, user_id: UUID) -> bool:

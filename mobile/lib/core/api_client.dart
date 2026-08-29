@@ -6,7 +6,6 @@ class ApiClient {
     : _dio = Dio(
         BaseOptions(
           baseUrl: baseUrl,
-          // Emulator ↔ Docker Desktop host can be slow to establish TCP.
           connectTimeout: const Duration(seconds: 30),
           receiveTimeout: const Duration(seconds: 45),
           sendTimeout: const Duration(seconds: 45),
@@ -258,6 +257,13 @@ class ApiClient {
     return Map<String, dynamic>.from(res.data as Map);
   }
 
+  Future<void> pingLocation({required double lat, required double lon}) async {
+    await _dio.post(
+      '/api/v1/auth/me/location',
+      data: {'latitude': lat, 'longitude': lon},
+    );
+  }
+
   Future<Map<String, dynamic>> listMyReports({
     String? reportType,
     String? status,
@@ -377,6 +383,18 @@ class ApiClient {
   /// Lost + found finished handover — hides both posts from public feeds.
   Future<Map<String, dynamic>> completeHandover(String roomId) async {
     final res = await _dio.post('/api/v1/chat/rooms/$roomId/handover-complete');
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  /// Owner self-find / withdraw — hides this post. Does not delete it.
+  Future<Map<String, dynamic>> closeReport(
+    String reportId, {
+    String reason = 'self_found',
+  }) async {
+    final res = await _dio.post(
+      '/api/v1/reports/$reportId/close',
+      data: {'reason': reason},
+    );
     return Map<String, dynamic>.from(res.data as Map);
   }
 }
