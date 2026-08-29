@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
+from loguru import logger
 from sqlalchemy import text
 
 from infrastructure.db.sql_client import get_session
+from services.geo_service import fuzz_coordinates
 
 
 def ensure_app_user(
@@ -115,3 +117,57 @@ def get_profile_summary(user_id: UUID) -> dict:
             "active_chats": 0,
         }
     return dict(row)
+
+
+def update_last_location(
+    user_id: UUID,
+    latitude: float,
+    longitude: float,
+    *,
+    apply_fuzz: bool = True,
+) -> bool:
+    """Store a fuzzed last-known point for nearby-post alerts. No-op if column missing."""
+    lat, lon = (fuzz_coordinates(latitude, longitude) if apply_fuzz else (latitude, longitude))
+    session = get_session()
+    try:
+        has_loc = _column_exists(session, "users", "last_location")
+        if not has_loc:
+            return False
+        has_at = _column_exists(session, "users", "last_location_at")
+        extra = ", last_location_at = now()" if has_at else ""
+        result = session.execute(
+            text(
+                f"""
+                UPDATE users
+                SET last_location = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
+                    updated_at = now()
+                    {extra}
+                WHERE id = CAST(:uid AS uuid)
+                """
+            ),
+            {"uid": str(user_id), "lat": lat, "lon": lon},
+        )
+        session.commit()
+        return (result.rowcount or 0) > 0
+    except Exception as exc:
+        session.rollback()
+        logger.warning("update_last_location failed user={}: {}", user_id, exc)
+        return False
+    finally:
+        session.close()
+
+
+def _column_exists(session, table: str, column: str) -> bool:
+    row = session.execute(
+        text(
+            """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = :t
+              AND column_name = :c
+            LIMIT 1
+            """
+        ),
+        {"t": table, "c": column},
+    ).first()
+    return row is not None

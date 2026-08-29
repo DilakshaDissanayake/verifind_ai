@@ -14,6 +14,8 @@ from api.schemas import (
     ChangePasswordResponse,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
+    LocationPingRequest,
+    LocationPingResponse,
     LoginRequest,
     LoginResponse,
     MeResponse,
@@ -319,3 +321,24 @@ async def me(user: CurrentUser = Depends(get_current_user)) -> MeResponse:
         found_count=int(summary.get("found_count") or 0),
         active_chats=int(summary.get("active_chats") or 0),
     )
+
+
+@router.post("/me/location", response_model=LocationPingResponse)
+async def ping_my_location(
+    body: LocationPingRequest,
+    user: CurrentUser = Depends(get_current_user),
+) -> LocationPingResponse:
+    """Store fuzzed last-known GPS so nearby-post alerts can fan out (no FCM)."""
+    from services.user_service import ensure_app_user, update_last_location
+
+    app_uid = await asyncio.to_thread(
+        ensure_app_user, auth_user_id=user.id, email=user.email
+    )
+    await asyncio.to_thread(
+        update_last_location,
+        UUID(str(app_uid)),
+        body.latitude,
+        body.longitude,
+        apply_fuzz=True,
+    )
+    return LocationPingResponse()

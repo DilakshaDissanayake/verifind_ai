@@ -112,6 +112,7 @@ async def list_notifications(
             score=float(r["score"]) if r.get("score") is not None else None,
             distance_m=float(r["distance_m"]) if r.get("distance_m") is not None else None,
             chat_room_id=r.get("chat_room_id"),
+            preview=r.get("preview"),
             is_read=bool(r.get("is_read", False)),
             created_at=r.get("created_at"),
         )

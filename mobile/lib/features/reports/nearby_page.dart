@@ -13,6 +13,7 @@ import '../../widgets/empty_state.dart';
 import '../../widgets/network_image_frame.dart';
 import '../../widgets/page_header.dart';
 import '../../widgets/pill_selector.dart';
+import '../../widgets/privacy_map.dart';
 import '../../widgets/skeleton_loaders.dart';
 import '../../widgets/status_pill.dart';
 import '../auth/auth_cubit.dart';
@@ -34,6 +35,9 @@ class _NearbyPageState extends State<NearbyPage> {
   String? _error;
   List<dynamic> _items = [];
   double? _queryLat;
+  double? _queryLon;
+  String? _selectedId;
+  String _viewMode = 'list';
 
   /// Default: show both LOST + FOUND within radius.
   String? _filter; // null = ALL
@@ -61,7 +65,14 @@ class _NearbyPageState extends State<NearbyPage> {
       if (!mounted) return;
       setState(() {
         _queryLat = loc.lat;
+        _queryLon = loc.lon;
         _items = (res['items'] as List?) ?? [];
+        if (_selectedId != null &&
+            !_items.any(
+              (e) => (e as Map)['report_id'] == _selectedId,
+            )) {
+          _selectedId = null;
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -105,6 +116,141 @@ class _NearbyPageState extends State<NearbyPage> {
           value: context.read<ApiClient>(),
           child: ChatPage(roomId: roomId, currentUserId: uid),
         ),
+      ),
+    );
+  }
+
+  Map<String, dynamic>? _itemById(String id) {
+    for (final raw in _items) {
+      final item = Map<String, dynamic>.from(raw as Map);
+      if (item['report_id'] == id) return item;
+    }
+    return null;
+  }
+
+  void _showPinDetails(String id) {
+    final item = _itemById(id);
+    if (item == null) return;
+    HapticFeedback.selectionClick();
+    setState(() => _selectedId = id);
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+      ),
+      builder: (sheetContext) {
+        final chatId = item['chat_room_id'] as String?;
+        return _NearbyPinDetails(
+          item: item,
+          onClose: () => Navigator.of(sheetContext).pop(),
+          onFound: item['report_type'] == 'LOST'
+              ? () {
+                  Navigator.of(sheetContext).pop();
+                  _reportFoundFor(item);
+                }
+              : null,
+          onOpenChat: chatId != null
+              ? () {
+                  Navigator.of(sheetContext).pop();
+                  _openChat(chatId);
+                }
+              : null,
+        );
+      },
+    );
+  }
+
+  List<NearbyMapItem> get _mapItems {
+    final out = <NearbyMapItem>[];
+    for (final raw in _items) {
+      final item = Map<String, dynamic>.from(raw as Map);
+      final lat = (item['latitude'] as num?)?.toDouble();
+      final lon = (item['longitude'] as num?)?.toDouble();
+      final id = item['report_id'] as String?;
+      if (lat == null || lon == null || id == null || id.isEmpty) continue;
+      out.add(
+        NearbyMapItem(
+          reportId: id,
+          lat: lat,
+          lon: lon,
+          isLost: (item['report_type'] as String? ?? '') == 'LOST',
+        ),
+      );
+    }
+    return out;
+  }
+
+  Widget _buildFeed({
+    ScrollController? controller,
+    required EdgeInsets padding,
+  }) {
+    if (_initialLoad) {
+      return const SkeletonList(feed: true, count: 3);
+    }
+    if (_error != null) {
+      return EmptyState(
+        icon: AppIcons.warningCircle,
+        title: 'Could not load nearby posts',
+        message: _error,
+        actionLabel: 'Retry',
+        onAction: _load,
+      );
+    }
+    if (_items.isEmpty) {
+      return EmptyState(
+        icon: AppIcons.nearby(),
+        title: 'No nearby posts yet',
+        message: _filter == null
+            ? 'No lost or found items near you right now.'
+            : _filter == 'LOST'
+            ? 'No lost items reported near you right now.'
+            : 'No found items reported near you right now.',
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView.separated(
+        controller: controller,
+        padding: padding,
+        itemCount: _items.length,
+        separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+        itemBuilder: (context, i) {
+          final item = Map<String, dynamic>.from(_items[i] as Map);
+          final id = item['report_id'] as String?;
+          final selected = id != null && id == _selectedId;
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              border: selected
+                  ? Border.all(color: AppColors.brand, width: 2)
+                  : Border.all(color: Colors.transparent, width: 2),
+            ),
+            child:
+                _NearbyReportCard(
+                      item: item,
+                      onSelect: id == null
+                          ? null
+                          : () => setState(() => _selectedId = id),
+                      onFound: item['report_type'] == 'LOST'
+                          ? () => _reportFoundFor(item)
+                          : null,
+                      onOpenChat: (item['chat_room_id'] as String?) != null
+                          ? () => _openChat(item['chat_room_id'] as String)
+                          : null,
+                    )
+                    .animate()
+                    .fadeIn(delay: (i * 50).ms, duration: 300.ms)
+                    .slideY(
+                      begin: 0.06,
+                      end: 0,
+                      curve: Curves.easeOutCubic,
+                    ),
+          );
+        },
       ),
     );
   }
@@ -155,88 +301,78 @@ class _NearbyPageState extends State<NearbyPage> {
                 },
               ),
             ),
-            if (_queryLat != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.xl,
-                  AppSpacing.sm,
-                  AppSpacing.xl,
-                  0,
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      AppIcons.gps,
-                      size: 13,
-                      color: theme.colorScheme.onSurface.withValues(
-                        alpha: 0.45,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Within 5 km · GPS fuzzed for privacy',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                0,
+                AppSpacing.xl,
+                AppSpacing.sm,
               ),
+              child: PillSelector(
+                tabs: [
+                  PillTab(value: 'list', label: 'List', icon: AppIcons.myReports()),
+                  PillTab(value: 'map', label: 'Map', icon: AppIcons.mapPin),
+                ],
+                selected: _viewMode,
+                onSelected: (v) => setState(() => _viewMode = v),
+              ),
+            ),
             Expanded(
-              child: _initialLoad
-                  ? const SkeletonList(feed: true, count: 3)
-                  : _error != null
-                  ? EmptyState(
-                      icon: AppIcons.warningCircle,
-                      title: 'Could not load nearby posts',
-                      message: _error,
-                      actionLabel: 'Retry',
-                      onAction: _load,
-                    )
-                  : _items.isEmpty
-                  ? EmptyState(
-                      icon: AppIcons.nearby(),
-                      title: 'No nearby posts yet',
-                      message: _filter == null
-                          ? 'No lost or found items near you right now.'
-                          : _filter == 'LOST'
-                          ? 'No lost items reported near you right now.'
-                          : 'No found items reported near you right now.',
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.xl,
-                          AppSpacing.md,
-                          AppSpacing.xl,
-                          AppSpacing.dockClearance,
+              child: _viewMode == 'map' &&
+                      _queryLat != null &&
+                      _queryLon != null &&
+                      _error == null &&
+                      !_initialLoad
+                  ? Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.xl,
+                            0,
+                            AppSpacing.xl,
+                            AppSpacing.sm,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                AppIcons.gps,
+                                size: 13,
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.45,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  '5 km around your phone \u00b7 tap a pin for details',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        itemCount: _items.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: AppSpacing.md),
-                        itemBuilder: (context, i) {
-                          final item = Map<String, dynamic>.from(
-                            _items[i] as Map,
-                          );
-                          return _NearbyReportCard(
-                                item: item,
-                                onFound: item['report_type'] == 'LOST'
-                                    ? () => _reportFoundFor(item)
-                                    : null,
-                                onOpenChat:
-                                    (item['chat_room_id'] as String?) != null
-                                    ? () => _openChat(
-                                        item['chat_room_id'] as String,
-                                      )
-                                    : null,
-                              )
-                              .animate()
-                              .fadeIn(delay: (i * 50).ms, duration: 300.ms)
-                              .slideY(
-                                begin: 0.06,
-                                end: 0,
-                                curve: Curves.easeOutCubic,
-                              );
-                        },
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(AppRadius.xl),
+                            ),
+                            child: PrivacyNearbyMap(
+                              centerLat: _queryLat!,
+                              centerLon: _queryLon!,
+                              items: _mapItems,
+                              selectedReportId: _selectedId,
+                              onSelect: _showPinDetails,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : _buildFeed(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.xl,
+                        AppSpacing.md,
+                        AppSpacing.xl,
+                        AppSpacing.dockClearance,
                       ),
                     ),
             ),
@@ -248,11 +384,17 @@ class _NearbyPageState extends State<NearbyPage> {
 }
 
 class _NearbyReportCard extends StatefulWidget {
-  const _NearbyReportCard({required this.item, this.onFound, this.onOpenChat});
+  const _NearbyReportCard({
+    required this.item,
+    this.onFound,
+    this.onOpenChat,
+    this.onSelect,
+  });
 
   final Map<String, dynamic> item;
   final VoidCallback? onFound;
   final VoidCallback? onOpenChat;
+  final VoidCallback? onSelect;
 
   @override
   State<_NearbyReportCard> createState() => _NearbyReportCardState();
@@ -295,6 +437,7 @@ class _NearbyReportCardState extends State<_NearbyReportCard> {
 
     return AppCard(
       padding: EdgeInsets.zero,
+      onTap: widget.onSelect,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -515,6 +658,305 @@ class _NearbyReportCardState extends State<_NearbyReportCard> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Map-pin details panel — matches admin public fields (type, status,
+/// category, photos, area, distance) without vault/owner data.
+class _NearbyPinDetails extends StatefulWidget {
+  const _NearbyPinDetails({
+    required this.item,
+    required this.onClose,
+    this.onFound,
+    this.onOpenChat,
+  });
+
+  final Map<String, dynamic> item;
+  final VoidCallback onClose;
+  final VoidCallback? onFound;
+  final VoidCallback? onOpenChat;
+
+  @override
+  State<_NearbyPinDetails> createState() => _NearbyPinDetailsState();
+}
+
+class _NearbyPinDetailsState extends State<_NearbyPinDetails> {
+  final _pageController = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  List<String> get _urls {
+    final raw = widget.item['image_urls'];
+    if (raw is! List) return const [];
+    return raw.map((e) => e.toString()).where((u) => u.isNotEmpty).toList();
+  }
+
+  String _distanceLabel(double dist) {
+    return dist >= 1000
+        ? '${(dist / 1000).toStringAsFixed(2)} km away'
+        : '${dist.toStringAsFixed(0)} m away';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusColors = theme.extension<AppStatusColors>()!;
+    final item = widget.item;
+    final type = item['report_type'] as String? ?? '';
+    final title = item['title'] as String? ?? '(no title)';
+    final dist = (item['distance_m'] as num?)?.toDouble();
+    final status = item['status'] as String? ?? '';
+    final category = (item['category'] as String?)?.trim();
+    final area = (item['location_label'] as String?)?.trim();
+    final claimStatus = (item['claim_status'] as String? ?? '').toLowerCase();
+    final decision = (item['verification_decision'] as String? ?? '')
+        .toUpperCase();
+    final urls = _urls;
+
+    final isPass = claimStatus == 'passed' || decision == 'PASS';
+    final isReview = claimStatus == 'review' || decision == 'REVIEW';
+    final isBlocked = claimStatus == 'blocked' || decision == 'BLOCK';
+    final hasChat = widget.onOpenChat != null;
+    final showFound = widget.onFound != null && !isPass && !isReview;
+
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: 168,
+                child: urls.isEmpty
+                    ? ColoredBox(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              AppIcons.imageBroken,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.4,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Photo pending',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      )
+                    : Stack(
+                        alignment: Alignment.bottomCenter,
+                        children: [
+                          PageView.builder(
+                            controller: _pageController,
+                            itemCount: urls.length,
+                            onPageChanged: (i) => setState(() => _page = i),
+                            itemBuilder: (context, index) {
+                              return NetworkImageFrame(
+                                url: urls[index],
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: 168,
+                              );
+                            },
+                          ),
+                          if (urls.length > 1)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: List.generate(urls.length, (i) {
+                                  final active = i == _page;
+                                  return Container(
+                                    width: active ? 8 : 6,
+                                    height: active ? 8 : 6,
+                                    margin: const EdgeInsets.symmetric(
+                                      horizontal: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: active
+                                          ? Colors.white
+                                          : Colors.white54,
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ),
+                        ],
+                      ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl,
+                  AppSpacing.md,
+                  AppSpacing.xl,
+                  AppSpacing.xl,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Public details',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: AppColors.brand,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                title,
+                                style: theme.textTheme.titleLarge,
+                              ),
+                            ],
+                          ),
+                        ),
+                        HeaderIconButton(
+                          icon: Icons.close_rounded,
+                          tooltip: 'Close',
+                          onPressed: widget.onClose,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.xs,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (type.isNotEmpty)
+                          StatusPill.reportType(context, type),
+                        if (status.isNotEmpty)
+                          StatusPill.reportStatus(context, status),
+                        if (category != null && category.isNotEmpty)
+                          StatusPill(
+                            label: category,
+                            color: statusColors.info,
+                            icon: AppIcons.tag,
+                            dense: true,
+                          ),
+                        if (isPass)
+                          StatusPill(
+                            label: 'PASS',
+                            color: statusColors.success,
+                            icon: AppIcons.checkCircle,
+                            dense: true,
+                          )
+                        else if (isReview)
+                          StatusPill(
+                            label: 'REVIEW',
+                            color: statusColors.warning,
+                            icon: AppIcons.clock,
+                            dense: true,
+                          )
+                        else if (isBlocked)
+                          StatusPill(
+                            label: 'BLOCKED',
+                            color: statusColors.danger,
+                            icon: AppIcons.xCircle,
+                            dense: true,
+                          ),
+                      ],
+                    ),
+                    if (dist != null || (area != null && area.isNotEmpty)) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      if (dist != null)
+                        Row(
+                          children: [
+                            Icon(
+                              AppIcons.distance,
+                              size: 14,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _distanceLabel(dist),
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      if (area != null && area.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              AppIcons.mapPin,
+                              size: 14,
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.5,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                area,
+                                style: theme.textTheme.bodySmall,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      'Map pins are privacy-fuzzed. Exact location is never shown.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.55,
+                        ),
+                      ),
+                    ),
+                    if (hasChat || showFound) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      if (hasChat)
+                        FilledButton(
+                          onPressed: widget.onOpenChat,
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(AppIcons.chat, size: 18),
+                              SizedBox(width: 8),
+                              Text('Open chat'),
+                            ],
+                          ),
+                        )
+                      else
+                        FilledButton.tonal(
+                          onPressed: widget.onFound,
+                          child: const Text('I found this'),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

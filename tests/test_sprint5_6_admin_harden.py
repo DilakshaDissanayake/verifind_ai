@@ -57,9 +57,44 @@ def test_score_band_boundaries():
 
 
 def test_verify_decide_pass_review_block():
+    # Thresholds from param.yaml verify.pass_threshold / block_threshold (0.60 / 0.30)
     assert _decide(0.85) == "PASS"
+    assert _decide(0.60) == "PASS"
     assert _decide(0.45) == "REVIEW"
+    assert _decide(0.30) == "REVIEW"
     assert _decide(0.10) == "BLOCK"
+
+
+@pytest.mark.asyncio
+async def test_score_answers_empty_hints_force_review_not_point_four():
+    """Regression: stub questions must not invent semantic scores of 0.4."""
+    from pipelines.verification_pipeline import _stub_questions, score_answers
+
+    stubs = _stub_questions(3)
+    assert all(not (q.get("expected_hint") or "").strip() for q in stubs)
+
+    result = await score_answers(
+        questions=stubs,
+        answers=["Fair condition", "small tear", "red zipper"],
+        report_id="test-report",
+    )
+    assert result["decision"] == "REVIEW"
+    assert result["unscored"] is True
+    assert result["overall_score"] is None
+    assert all(s is None for s in result["semantic_scores"])
+    assert result["semantic_scores"] != [0.4, 0.4, 0.4]
+
+
+def test_questions_from_features_include_hints():
+    from pipelines.verification_pipeline import _questions_from_features
+
+    qs = _questions_from_features(
+        {"brand": "Nike", "colors": ["black", "red"], "unique_mark": "tear bottom-left"},
+        3,
+    )
+    assert len(qs) == 3
+    assert all((q.get("expected_hint") or "").strip() for q in qs)
+    assert any("Nike" in q["expected_hint"] for q in qs)
 
 
 def test_normalize_questions_rejects_character_split_string():

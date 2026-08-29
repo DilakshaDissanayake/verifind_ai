@@ -53,8 +53,9 @@ class _ChatsPageState extends State<ChatsPage> {
       if (!mounted) return;
       setState(() => _error = ApiClient.friendlyError(e));
     } finally {
-      if (!mounted) return;
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 

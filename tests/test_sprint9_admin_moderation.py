@@ -50,6 +50,48 @@ def test_admin_match_decide_pass():
     assert res.json()["admin_status"] == "approved"
 
 
+def test_admin_match_decide_low_requires_force():
+    mid = uuid4()
+    with patch(
+        "services.moderation_service.decide_match",
+        side_effect=ValueError(
+            "LOW-band match requires force=true after manual category check "
+            "(score=0.34, electronics ↔ bag)"
+        ),
+    ):
+        res = client.post(
+            f"/api/v1/admin/suggestions/{mid}/decide",
+            headers={"Authorization": "Bearer dev"},
+            json={"decision": "PASS", "note": "Oops", "force": False},
+        )
+    assert res.status_code == 400
+    assert "LOW-band" in res.json()["detail"]
+
+
+def test_admin_match_decide_low_with_force():
+    mid = uuid4()
+    with patch(
+        "services.moderation_service.decide_match",
+        return_value={
+            "id": mid,
+            "admin_status": "approved",
+            "band": "LOW",
+            "score": 0.34,
+            "notified": True,
+            "warning": "Forced PASS on LOW-band match (electronics ↔ bag)",
+        },
+    ) as mocked:
+        res = client.post(
+            f"/api/v1/admin/suggestions/{mid}/decide",
+            headers={"Authorization": "Bearer dev"},
+            json={"decision": "PASS", "note": "Checked", "force": True},
+        )
+    assert res.status_code == 200
+    assert res.json()["admin_status"] == "approved"
+    assert "Forced" in (res.json().get("message") or "")
+    assert mocked.call_args.kwargs.get("force") is True
+
+
 def test_admin_block_user():
     uid = uuid4()
     with patch(

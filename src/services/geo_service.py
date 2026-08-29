@@ -148,3 +148,127 @@ def row_to_dict(hit: NearbyHit) -> dict[str, Any]:
         "distance_m": hit.distance_m,
         "location_label": hit.location_label,
     }
+
+
+@dataclass
+class NearbyUser:
+    user_id: UUID
+    distance_m: float
+
+
+def merge_nearby_user_hits(
+    hits: list[tuple[UUID, float]],
+    *,
+    limit: int = 200,
+) -> list[NearbyUser]:
+    """Keep the closest distance per user, then cap the fan-out."""
+    best: dict[UUID, float] = {}
+    for uid, dist in hits:
+        prev = best.get(uid)
+        if prev is None or dist < prev:
+            best[uid] = dist
+    ordered = sorted(best.items(), key=lambda item: item[1])[:limit]
+    return [NearbyUser(user_id=uid, distance_m=dist) for uid, dist in ordered]
+
+
+def nearby_users_to_notify(
+    lat: float,
+    lon: float,
+    *,
+    exclude_user_id: UUID,
+    radius_m: int = GEO_RADIUS_M,
+    location_max_age_hours: int = 24,
+    limit: int = 200,
+) -> list[NearbyUser]:
+    """Users within radius_m of a new post (fresh last_location ∪ active reports)."""
+    session = get_session()
+    hits: list[tuple[UUID, float]] = []
+    try:
+        has_last_loc = _column_exists(session, "users", "last_location")
+        has_last_at = _column_exists(session, "users", "last_location_at")
+        if has_last_loc:
+            age_sql = (
+                "AND last_location_at > now() - make_interval(hours => :age_h)"
+                if has_last_at
+                else ""
+            )
+            rows = session.execute(
+                text(
+                    f"""
+                    SELECT id AS user_id,
+                           ST_Distance(
+                               last_location,
+                               ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
+                           ) AS dist_m
+                    FROM users
+                    WHERE last_location IS NOT NULL
+                      AND COALESCE(is_active, true) = true
+                      AND id <> CAST(:exclude AS uuid)
+                      AND ST_DWithin(
+                            last_location,
+                            ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
+                            :radius_m
+                          )
+                      {age_sql}
+                    """
+                ),
+                {
+                    "lat": lat,
+                    "lon": lon,
+                    "radius_m": radius_m,
+                    "exclude": str(exclude_user_id),
+                    "age_h": location_max_age_hours,
+                },
+            ).mappings().all()
+            hits.extend((row["user_id"], float(row["dist_m"])) for row in rows)
+
+        rows = session.execute(
+            text(
+                """
+                SELECT r.user_id,
+                       MIN(
+                           ST_Distance(
+                               r.location,
+                               ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography
+                           )
+                       ) AS dist_m
+                FROM reports r
+                WHERE r.location IS NOT NULL
+                  AND r.status IN ('pending', 'processing', 'active')
+                  AND r.user_id <> CAST(:exclude AS uuid)
+                  AND ST_DWithin(
+                        r.location,
+                        ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
+                        :radius_m
+                      )
+                GROUP BY r.user_id
+                """
+            ),
+            {
+                "lat": lat,
+                "lon": lon,
+                "radius_m": radius_m,
+                "exclude": str(exclude_user_id),
+            },
+        ).mappings().all()
+        hits.extend((row["user_id"], float(row["dist_m"])) for row in rows)
+    finally:
+        session.close()
+
+    return merge_nearby_user_hits(hits, limit=limit)
+
+
+def _column_exists(session, table: str, column: str) -> bool:
+    row = session.execute(
+        text(
+            """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = :t
+              AND column_name = :c
+            LIMIT 1
+            """
+        ),
+        {"t": table, "c": column},
+    ).first()
+    return row is not None

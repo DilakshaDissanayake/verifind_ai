@@ -8,12 +8,14 @@ import '../../design/app_spacing.dart';
 
 class _Slide {
   const _Slide({
+    required this.image,
     required this.icon,
     required this.title,
     required this.body,
     required this.tone,
   });
 
+  final String image;
   final IconData icon;
   final String title;
   final String body;
@@ -22,6 +24,7 @@ class _Slide {
 
 const _slides = <_Slide>[
   _Slide(
+    image: 'assets/board/board_1.png',
     icon: PhosphorIconsBold.cameraPlus,
     title: 'Report in seconds',
     body:
@@ -30,6 +33,7 @@ const _slides = <_Slide>[
     tone: AppColors.brand,
   ),
   _Slide(
+    image: 'assets/board/board_2.png',
     icon: PhosphorIconsBold.arrowsLeftRight,
     title: 'Smart AI matching',
     body:
@@ -38,6 +42,7 @@ const _slides = <_Slide>[
     tone: AppColors.success,
   ),
   _Slide(
+    image: 'assets/board/board_3.png',
     icon: PhosphorIconsFill.shieldCheck,
     title: 'Verified & private',
     body:
@@ -112,37 +117,25 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       horizontal: AppSpacing.xl,
                     ),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Container(
-                              width: 168,
-                              height: 168,
-                              decoration: BoxDecoration(
-                                color: s.tone,
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.xxl,
-                                ),
-                              ),
-                              alignment: Alignment.center,
-                              child: Icon(
-                                s.icon,
-                                size: 72,
-                                color:
-                                    s.tone == AppColors.success ||
-                                        s.tone == AppColors.brandDark
-                                    ? Colors.white
-                                    : AppColors.ink,
-                              ),
-                            )
-                            .animate(key: ValueKey('icon$i'))
-                            .scale(
-                              begin: const Offset(0.82, 0.82),
-                              end: const Offset(1, 1),
-                              duration: 380.ms,
-                              curve: Curves.easeOutBack,
-                            )
-                            .fadeIn(duration: 320.ms),
-                        const SizedBox(height: AppSpacing.xxl),
+                        Expanded(
+                          child:
+                              Image.asset(
+                                    s.image,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) =>
+                                        _SlideFallback(slide: s),
+                                  )
+                                  .animate(key: ValueKey('art$i'))
+                                  .scale(
+                                    begin: const Offset(0.88, 0.88),
+                                    end: const Offset(1, 1),
+                                    duration: 380.ms,
+                                    curve: Curves.easeOutBack,
+                                  )
+                                  .fadeIn(duration: 320.ms),
+                        ),
+                        const SizedBox(height: AppSpacing.xl),
                         Text(
                               s.title,
                               textAlign: TextAlign.center,
@@ -198,6 +191,32 @@ class _OnboardingPageState extends State<OnboardingPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SlideFallback extends StatelessWidget {
+  const _SlideFallback({required this.slide});
+
+  final _Slide slide;
+
+  @override
+  Widget build(BuildContext context) {
+    final onTone =
+        slide.tone == AppColors.success || slide.tone == AppColors.brandDark
+        ? Colors.white
+        : AppColors.ink;
+    return Center(
+      child: Container(
+        width: 168,
+        height: 168,
+        decoration: BoxDecoration(
+          color: slide.tone,
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
+        ),
+        alignment: Alignment.center,
+        child: Icon(slide.icon, size: 72, color: onTone),
       ),
     );
   }

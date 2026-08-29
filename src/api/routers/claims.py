@@ -110,16 +110,24 @@ async def submit_answers(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     decision = result["decision"]
+    unscored = bool(result.get("unscored"))
     message = {
         "PASS": "Ownership verified — chat room is now open.",
-        "REVIEW": "Partial verification — your claim is under admin review.",
+        "REVIEW": (
+            "Verification questions unavailable — your claim was routed to admin review."
+            if unscored
+            else "Partial verification — your claim is under admin review."
+        ),
         "BLOCK": "Verification failed. Please contact support if this is an error.",
     }.get(decision, "")
 
+    scores = result.get("semantic_scores") or []
+    safe_scores = [float(s) if s is not None else 0.0 for s in scores]
+
     return VerificationResultResponse(
         decision=decision,  # type: ignore[arg-type]
-        overall_score=result["overall_score"],
-        semantic_scores=result.get("semantic_scores", []),
+        overall_score=float(result["overall_score"]) if result.get("overall_score") is not None else 0.0,
+        semantic_scores=safe_scores,
         chat_room_id=UUID(result["chat_room_id"]) if result.get("chat_room_id") else None,
         claim_attempt_id=UUID(result["claim_attempt_id"]),
         verification_session_id=UUID(result["verification_session_id"]),

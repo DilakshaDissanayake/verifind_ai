@@ -55,6 +55,19 @@ export type AdminReport = {
   user_email?: string | null;
   emergency_contact?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
+  description?: string | null;
+  location_label?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  public_image_urls?: string[];
+};
+
+export type ReportListQuery = {
+  search?: string;
+  status?: string;
+  reportType?: string;
+  category?: string;
 };
 
 export type AdminUser = {
@@ -187,10 +200,14 @@ export async function getOverview(): Promise<Overview> {
   return get<Overview>("/api/v1/admin/overview");
 }
 
-export async function listAdminReports(search = ""): Promise<AdminReport[]> {
-  const body = await get<{ items: AdminReport[] }>(
-    `/api/v1/admin/reports?limit=100&search=${encodeURIComponent(search)}`
-  );
+export async function listAdminReports(query: string | ReportListQuery = ""): Promise<AdminReport[]> {
+  const q: ReportListQuery = typeof query === "string" ? { search: query } : query;
+  const params = new URLSearchParams({ limit: "200" });
+  if (q.search) params.set("search", q.search);
+  if (q.status) params.set("status", q.status);
+  if (q.reportType) params.set("report_type", q.reportType);
+  if (q.category) params.set("category", q.category);
+  const body = await get<{ items: AdminReport[] }>(`/api/v1/admin/reports?${params}`);
   return body.items;
 }
 
@@ -232,9 +249,14 @@ export async function listSuggestions(): Promise<Suggestion[]> {
 export async function decideMatch(
   matchId: string,
   decision: "PASS" | "REJECT",
-  note?: string
-): Promise<{ admin_status: string; message: string }> {
-  return post(`/api/v1/admin/suggestions/${matchId}/decide`, { decision, note: note || null });
+  note?: string,
+  force = false
+): Promise<{ admin_status: string; message: string; warning?: string | null }> {
+  return post(`/api/v1/admin/suggestions/${matchId}/decide`, {
+    decision,
+    note: note || null,
+    force,
+  });
 }
 
 export async function listModeration(openOnly = true): Promise<ModerationEvent[]> {
@@ -254,9 +276,14 @@ export async function listAuditLogs(): Promise<AuditLog[]> {
 }
 
 export async function downloadExport(
-  kind: "lost" | "found" | "handovers" | "all"
+  kind: "lost" | "found" | "handovers" | "all",
+  ids?: string[]
 ): Promise<void> {
-  const res = await fetch(`/api/v1/admin/export?kind=${kind}`, {
+  const params = new URLSearchParams({ kind });
+  if (ids && ids.length > 0) {
+    params.set("ids", ids.join(","));
+  }
+  const res = await fetch(`/api/v1/admin/export?${params}`, {
     headers: authHeaders(),
   });
   if (!res.ok) {

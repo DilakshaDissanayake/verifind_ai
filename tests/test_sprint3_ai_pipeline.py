@@ -328,7 +328,7 @@ class TestFusion:
         assert 0.49 <= score_mid <= 0.51
 
     def test_category_match_score(self):
-        from pipelines.fusion import category_match_score
+        from pipelines.fusion import categories_conflict, category_match_score
 
         assert category_match_score("electronics", "electronics") == 1.0
         assert category_match_score("Electronics", "electronics") == 1.0
@@ -338,6 +338,13 @@ class TestFusion:
         assert category_match_score("bag", "wallet") == 0.0
         assert category_match_score("other", "other") == 0.0
         assert category_match_score(None, "bag") == 0.0
+
+        # Hard conflict for known taxonomy mismatches (Dell laptop ↔ Nike bag)
+        assert categories_conflict("electronics", "bag") is True
+        assert categories_conflict("bag", "bag") is False
+        assert categories_conflict("electronics", "electronics") is False
+        assert categories_conflict(None, "bag") is False
+        assert categories_conflict("other", "electronics") is False
 
 
 # ---------------------------------------------------------------------------

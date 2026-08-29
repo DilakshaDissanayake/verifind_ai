@@ -258,6 +258,7 @@ def decide_match(
     admin_user_id: UUID,
     decision: str,
     note: Optional[str] = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     """Admin PASS (approve) or REJECT an AI match suggestion."""
     decision = decision.upper().strip()
@@ -267,6 +268,36 @@ def decide_match(
 
     session = get_session()
     try:
+        existing = session.execute(
+            text(
+                """
+                SELECT id, score, band, admin_status,
+                       ra.category AS cat_a, rb.category AS cat_b
+                FROM matches m
+                JOIN reports ra ON ra.id = m.report_a_id
+                JOIN reports rb ON rb.id = m.report_b_id
+                WHERE m.id = :mid
+                """
+            ),
+            {"mid": str(match_id)},
+        ).mappings().first()
+        if existing is None:
+            raise ValueError("Match not found")
+
+        band = str(existing.get("band") or "").upper()
+        warning: Optional[str] = None
+        if decision == "PASS" and band == "LOW" and not force:
+            raise ValueError(
+                "LOW-band match requires force=true after manual category check "
+                f"(score={float(existing['score']):.2f}, "
+                f"{existing.get('cat_a')} ↔ {existing.get('cat_b')})"
+            )
+        if decision == "PASS" and band == "LOW" and force:
+            warning = (
+                f"Forced PASS on LOW-band match "
+                f"({existing.get('cat_a')} ↔ {existing.get('cat_b')})"
+            )
+
         row = session.execute(
             text(
                 """
@@ -313,6 +344,7 @@ def decide_match(
                         "admin_status": status,
                         "band": row["band"],
                         "score": float(row["score"]),
+                        "force": force,
                     }
                 ),
             },
@@ -323,10 +355,18 @@ def decide_match(
             action=f"match_{status}",
             entity_type="match",
             entity_id=match_id,
-            meta={"decision": decision, "note": note or ""},
+            meta={
+                "decision": decision,
+                "note": note or "",
+                "force": force,
+                "warning": warning,
+            },
         )
         session.commit()
-        return dict(row)
+        out = dict(row)
+        if warning:
+            out["warning"] = warning
+        return out
     except Exception:
         session.rollback()
         raise

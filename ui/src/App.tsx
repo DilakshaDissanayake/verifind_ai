@@ -7,6 +7,7 @@ import {
   type AdminReport, type AdminUser, type AuditLog, type ModerationEvent,
   type Overview, type ReviewDetail, type ReviewItem, type Suggestion,
 } from "./api";
+import ReportsBoard from "./ReportsBoard";
 
 type Page =
   | "overview" | "reports" | "users" | "suggestions"
@@ -177,16 +178,27 @@ export default function App() {
     );
   }
 
-  async function onDecideMatch(id: string, decision: "PASS" | "REJECT") {
+  async function onDecideMatch(s: Suggestion, decision: "PASS" | "REJECT") {
+    const band = (s.band || "").toUpperCase();
+    let force = false;
+    if (decision === "PASS" && band === "LOW") {
+      const ok = window.confirm(
+        `This is a LOW-band match (${Math.round(s.score * 100)}%).\n\n` +
+          `${s.lost_title || "Lost"} ↔ ${s.found_title || "Found"}\n\n` +
+          "Approving may notify users about a false positive. Continue only after checking categories?"
+      );
+      if (!ok) return;
+      force = true;
+    }
     const note = window.prompt(
       decision === "PASS" ? "Optional note for approve:" : "Why reject this match?",
-      decision === "PASS" ? "Approved" : "False positive"
+      decision === "PASS" ? (force ? "Forced LOW approve after category check" : "Approved") : "False positive"
     );
     if (note === null) return;
     await withLoad(
       decision === "PASS" ? "Approving match for users…" : "Rejecting match (hide from feeds)…",
       async () => {
-        const res = await decideMatch(id, decision, note);
+        const res = await decideMatch(s.match_id, decision, note, force);
         flashNotice(res.message);
         await load();
       }
@@ -236,11 +248,22 @@ export default function App() {
     });
   }
 
-  async function onExport(kind: "lost" | "found" | "handovers" | "all") {
-    await withLoad(`Exporting ${kind} CSV…`, async () => {
-      await downloadExport(kind);
-      flashNotice(`Downloaded ${kind} export.`);
-    });
+  async function onExport(
+    kind: "lost" | "found" | "handovers" | "all",
+    ids?: string[]
+  ) {
+    const scoped = ids && ids.length > 0;
+    await withLoad(
+      scoped ? `Exporting ${ids.length} selected (${kind})…` : `Exporting ${kind} CSV…`,
+      async () => {
+        await downloadExport(kind, scoped ? ids : undefined);
+        flashNotice(
+          scoped
+            ? `Downloaded ${kind} export (${ids.length} selected).`
+            : `Downloaded full ${kind} export.`
+        );
+      }
+    );
   }
 
   if (!loggedIn) {
@@ -501,12 +524,12 @@ type PageProps = {
   loading: boolean;
   loadingLabel: string;
   openReview: (id: string) => void;
-  onDecideMatch: (id: string, d: "PASS" | "REJECT") => void;
+  onDecideMatch: (s: Suggestion, d: "PASS" | "REJECT") => void;
   onBlockUser: (u: AdminUser, currentlyActive: boolean) => void;
   onRevealContact: (userId: string) => void;
   onResolveReport: (id: string, action: "approve" | "quarantine" | "remove") => void;
   onResolveModeration: (id: string) => void;
-  onExport: (kind: "lost" | "found" | "handovers" | "all") => void;
+  onExport: (kind: "lost" | "found" | "handovers" | "all", ids?: string[]) => void;
   go: (p: Page) => void;
 };
 
@@ -556,35 +579,19 @@ function PageView(p: PageProps) {
       <>
         <SectionIntro
           kicker="Community activity"
-          heading="All reports"
-          copy="Approve, quarantine, or remove flagged posts. Export lost, found, and successful handover CSVs anytime — including hidden closed posts."
+          heading="Lost & found board"
+          copy="Smart list or map of every report. Filter by type, status, and category. Photos are sanitized public images only — vault originals stay in the fraud queue."
         />
         {common}
-        <div className="export-bar">
-          <span className="eyebrow">Admin export</span>
-          <div className="row-actions">
-            <button className="mini-button" disabled={p.loading} onClick={() => p.onExport("lost")}>
-              Export lost
-            </button>
-            <button className="mini-button" disabled={p.loading} onClick={() => p.onExport("found")}>
-              Export found
-            </button>
-            <button className="mini-button ok" disabled={p.loading} onClick={() => p.onExport("handovers")}>
-              Export handovers
-            </button>
-            <button className="mini-button" disabled={p.loading} onClick={() => p.onExport("all")}>
-              Export all
-            </button>
-          </div>
-        </div>
         {p.loading && !p.reports.length ? (
           <SkeletonBoard label={p.loadingLabel} />
         ) : (
-          <ReportTable
+          <ReportsBoard
             rows={p.reports}
             busy={p.loading}
             onResolve={p.onResolveReport}
             onReveal={p.onRevealContact}
+            onExport={p.onExport}
           />
         )}
       </>
@@ -929,54 +936,6 @@ function SectionIntro({
   );
 }
 
-function ReportTable({
-  rows,
-  busy,
-  onResolve,
-  onReveal,
-}: {
-  rows: AdminReport[];
-  busy: boolean;
-  onResolve: (id: string, action: "approve" | "quarantine" | "remove") => void;
-  onReveal: (userId: string) => void;
-}) {
-  return (
-    <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
-      <TableHead labels={["Report", "Type", "Owner", "Status", "Actions"]} cols="cols-actions" />
-      {rows.map((r) => (
-        <div className="data-row cols-actions" key={r.report_id}>
-          <div>
-            <strong>{r.title || "Untitled report"}</strong>
-            <small>{r.category || "No category"}</small>
-          </div>
-          <span className={`type type-${r.report_type.toLowerCase()}`}>{r.report_type}</span>
-          <span>{r.user_email || r.user_id.slice(0, 8)}</span>
-          <Status value={r.status} />
-          <div className="row-actions">
-            {r.status === "flagged" && (
-              <button className="mini-button" disabled={busy} onClick={() => onResolve(r.report_id, "approve")}>
-                Approve
-              </button>
-            )}
-            <button className="mini-button warn" disabled={busy} onClick={() => onResolve(r.report_id, "quarantine")}>
-              Flag
-            </button>
-            <button className="mini-button danger" disabled={busy} onClick={() => onResolve(r.report_id, "remove")}>
-              Remove
-            </button>
-            <button className="mini-button" disabled={busy} onClick={() => onReveal(r.user_id)}>
-              Contact
-            </button>
-          </div>
-        </div>
-      ))}
-      {!rows.length && (
-        <Empty text="No reports found." hint="Try clearing search, or create a report from the mobile app." />
-      )}
-    </div>
-  );
-}
-
 function UserTable({
   rows,
   busy,
@@ -1032,7 +991,7 @@ function SuggestionTable({
 }: {
   rows: Suggestion[];
   busy: boolean;
-  onDecide: (id: string, d: "PASS" | "REJECT") => void;
+  onDecide: (s: Suggestion, d: "PASS" | "REJECT") => void;
 }) {
   return (
     <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
@@ -1049,10 +1008,10 @@ function SuggestionTable({
           <div className="row-actions">
             {s.admin_status === "pending" ? (
               <>
-                <button className="mini-button ok" disabled={busy} onClick={() => onDecide(s.match_id, "PASS")}>
+                <button className="mini-button ok" disabled={busy} onClick={() => onDecide(s, "PASS")}>
                   Pass
                 </button>
-                <button className="mini-button danger" disabled={busy} onClick={() => onDecide(s.match_id, "REJECT")}>
+                <button className="mini-button danger" disabled={busy} onClick={() => onDecide(s, "REJECT")}>
                   Reject
                 </button>
               </>

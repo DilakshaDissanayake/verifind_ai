@@ -10,6 +10,7 @@ from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +26,7 @@ except Exception:
 
 from api.main import create_app  # noqa: E402
 from pipelines.metadata_pipeline import extract_exif, public_exif  # noqa: E402
-from services.geo_service import NearbyHit, fuzz_coordinates, haversine_m  # noqa: E402
+from services.geo_service import NearbyHit, NearbyUser, fuzz_coordinates, haversine_m, merge_nearby_user_hits  # noqa: E402
 from services.image_service import ReportImageRecord  # noqa: E402
 from services.report_service import ReportRecord  # noqa: E402
 
@@ -216,3 +217,141 @@ def test_health_version_sprint2(client):
     res = client.get("/health")
     # health router may still say sprint1 in body — schemas HealthResponse defaults sprint2
     assert res.status_code == 200
+
+
+def test_owner_close_self_found(client):
+    fake = _fake_report(status="active")
+    closed = _fake_report(id=fake.id, status="closed")
+    with patch(
+        "api.routers.reports.report_service.close_owner_report",
+        return_value=(closed, False, 0),
+    ) as mock_close:
+        res = client.post(
+            f"/api/v1/reports/{fake.id}/close",
+            json={"reason": "self_found"},
+            headers={"Authorization": "Bearer dev"},
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "closed"
+    assert body["already_closed"] is False
+    assert body["reason"] == "self_found"
+    assert "not deleted" in body["message"].lower()
+    mock_close.assert_called_once()
+
+
+def test_owner_close_already_closed(client):
+    fake = _fake_report(status="closed")
+    with patch(
+        "api.routers.reports.report_service.close_owner_report",
+        return_value=(fake, True, 0),
+    ):
+        res = client.post(
+            f"/api/v1/reports/{fake.id}/close",
+            json={"reason": "self_found"},
+            headers={"Authorization": "Bearer dev"},
+        )
+    assert res.status_code == 200
+    assert res.json()["already_closed"] is True
+
+
+def test_owner_close_not_owner(client):
+    rid = uuid4()
+    with patch(
+        "api.routers.reports.report_service.close_owner_report",
+        side_effect=HTTPException(status_code=403, detail="Not report owner"),
+    ):
+        res = client.post(
+            f"/api/v1/reports/{rid}/close",
+            json={"reason": "withdrawn"},
+            headers={"Authorization": "Bearer dev"},
+        )
+    assert res.status_code == 403
+
+
+def test_merge_nearby_user_hits_keeps_closest():
+    a, b = uuid4(), uuid4()
+    out = merge_nearby_user_hits([(a, 500.0), (b, 100.0), (a, 200.0)], limit=10)
+    assert [u.user_id for u in out] == [b, a]
+    assert out[1].distance_m == 200.0
+
+
+def test_create_notifies_nearby_users(client):
+    fake = _fake_report(report_type="LOST", title="Black bag")
+    with patch(
+        "api.routers.reports.report_service.create_report", return_value=fake
+    ), patch(
+        "services.notification_service.notify_nearby_post", return_value=3
+    ) as notify, patch(
+        "services.user_service.update_last_location", return_value=True
+    ):
+        res = client.post(
+            "/api/v1/reports",
+            json={
+                "report_type": "LOST",
+                "title": "Black bag",
+                "latitude": 6.9271,
+                "longitude": 79.8612,
+            },
+            headers={"Authorization": "Bearer dev"},
+        )
+    assert res.status_code == 202
+    assert notify.called
+    kwargs = notify.call_args.kwargs
+    assert kwargs["report_id"] == fake.id
+    assert kwargs["poster_user_id"] == fake.user_id
+    assert kwargs["lat"] == fake.latitude
+
+
+def test_notify_nearby_post_fans_out():
+    from services.notification_service import notify_nearby_post
+
+    poster, u1, u2, rid = uuid4(), uuid4(), uuid4(), uuid4()
+    with patch(
+        "services.geo_service.nearby_users_to_notify",
+        return_value=[
+            NearbyUser(user_id=u1, distance_m=120.0),
+            NearbyUser(user_id=u2, distance_m=4100.0),
+        ],
+    ), patch(
+        "services.notification_service._insert_typed_notification",
+        return_value=True,
+    ) as insert:
+        created = notify_nearby_post(
+            poster_user_id=poster,
+            report_id=rid,
+            report_type="FOUND",
+            title="Wallet",
+            lat=6.9271,
+            lon=79.8612,
+        )
+    assert created == 2
+    assert insert.call_count == 2
+    assert insert.call_args.kwargs["notif_type"] == "nearby_post"
+    assert insert.call_args.kwargs["band"] == "FOUND"
+
+
+def test_notify_nearby_post_skips_without_gps():
+    from services.notification_service import notify_nearby_post
+
+    assert (
+        notify_nearby_post(
+            poster_user_id=uuid4(),
+            report_id=uuid4(),
+            report_type="LOST",
+            title="Bag",
+        )
+        == 0
+    )
+
+
+def test_location_ping(client):
+    with patch("services.user_service.update_last_location", return_value=True) as ping:
+        res = client.post(
+            "/api/v1/auth/me/location",
+            json={"latitude": 6.9271, "longitude": 79.8612},
+            headers={"Authorization": "Bearer dev"},
+        )
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+    assert ping.called

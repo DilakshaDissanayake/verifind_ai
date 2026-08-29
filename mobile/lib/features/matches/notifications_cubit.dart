@@ -12,11 +12,16 @@ class NotificationsInitial extends NotificationsState {}
 class NotificationsLoading extends NotificationsState {}
 
 class NotificationsLoaded extends NotificationsState {
-  NotificationsLoaded({required this.items, required this.unreadCount});
+  NotificationsLoaded({
+    required this.items,
+    required this.unreadCount,
+    this.newlyArrived = const [],
+  });
   final List<Map<String, dynamic>> items;
   final int unreadCount;
+  final List<Map<String, dynamic>> newlyArrived;
   @override
-  List<Object?> get props => [items, unreadCount];
+  List<Object?> get props => [items, unreadCount, newlyArrived];
 }
 
 class NotificationsError extends NotificationsState {
@@ -29,6 +34,8 @@ class NotificationsError extends NotificationsState {
 class NotificationsCubit extends Cubit<NotificationsState> {
   NotificationsCubit(this._api) : super(NotificationsInitial());
   final ApiClient _api;
+  final Set<String> _seenIds = {};
+  bool _bootstrapped = false;
 
   Future<void> load({bool unreadOnly = false, bool silent = false}) async {
     if (!silent) emit(NotificationsLoading());
@@ -40,7 +47,28 @@ class NotificationsCubit extends Cubit<NotificationsState> {
         ),
       );
       final unread = data['unread_count'] as int? ?? 0;
-      emit(NotificationsLoaded(items: items, unreadCount: unread));
+      final newlyArrived = <Map<String, dynamic>>[];
+      if (!_bootstrapped) {
+        for (final item in items) {
+          final id = item['notification_id'] as String?;
+          if (id != null) _seenIds.add(id);
+        }
+        _bootstrapped = true;
+      } else {
+        for (final item in items) {
+          final id = item['notification_id'] as String?;
+          if (id == null || _seenIds.contains(id)) continue;
+          _seenIds.add(id);
+          if (item['is_read'] != true) newlyArrived.add(item);
+        }
+      }
+      emit(
+        NotificationsLoaded(
+          items: items,
+          unreadCount: unread,
+          newlyArrived: newlyArrived,
+        ),
+      );
     } catch (e) {
       if (!silent) emit(NotificationsError(ApiClient.friendlyError(e)));
     }

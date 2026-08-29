@@ -85,6 +85,15 @@ class MeResponse(BaseModel):
     active_chats: int = 0
 
 
+class LocationPingRequest(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class LocationPingResponse(BaseModel):
+    ok: bool = True
+
+
 class ReportCreateRequest(BaseModel):
     report_type: Literal["LOST", "FOUND"]
     category: Optional[str] = None
@@ -116,6 +125,21 @@ class ReportUpdateRequest(BaseModel):
     status: Optional[
         Literal["pending", "processing", "active", "matched", "closed", "flagged"]
     ] = None
+
+
+class ReportCloseRequest(BaseModel):
+    """Owner takes a listing off public feeds. Never hard-deletes (audit / fraud)."""
+
+    reason: Literal["self_found", "withdrawn"] = "self_found"
+
+
+class ReportCloseResponse(BaseModel):
+    report_id: UUID
+    status: str
+    reason: str
+    already_closed: bool = False
+    chats_closed: int = 0
+    message: str = ""
 
 
 class ReportOut(BaseModel):
@@ -233,6 +257,7 @@ class NotificationOut(BaseModel):
     score: Optional[float] = None
     distance_m: Optional[float] = None
     chat_room_id: Optional[UUID] = None
+    preview: Optional[str] = None
     is_read: bool = False
     created_at: Optional[datetime] = None
 
@@ -433,6 +458,11 @@ class AdminReportOut(BaseModel):
     emergency_contact: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    description: Optional[str] = None
+    location_label: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    public_image_urls: list[str] = []
 
 
 class AdminReportListResponse(BaseModel):
@@ -514,6 +544,8 @@ class AdminSuggestionListResponse(BaseModel):
 class AdminMatchDecideRequest(BaseModel):
     decision: Literal["PASS", "REJECT"]
     note: Optional[str] = Field(default=None, max_length=500)
+    # Required to approve LOW-band matches (false-positive guard)
+    force: bool = False
 
 
 class AdminMatchDecideResponse(BaseModel):
@@ -521,6 +553,7 @@ class AdminMatchDecideResponse(BaseModel):
     admin_status: str
     decision: Literal["PASS", "REJECT"]
     message: str = ""
+    warning: Optional[str] = None
 
 
 class AdminModerationEventOut(BaseModel):
