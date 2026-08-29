@@ -544,6 +544,8 @@ class AdminSuggestionListResponse(BaseModel):
 class AdminMatchDecideRequest(BaseModel):
     decision: Literal["PASS", "REJECT"]
     note: Optional[str] = Field(default=None, max_length=500)
+    # Required to approve LOW-band matches (false-positive guard)
+    force: bool = False
 
 
 class AdminMatchDecideResponse(BaseModel):
@@ -551,6 +553,7 @@ class AdminMatchDecideResponse(BaseModel):
     admin_status: str
     decision: Literal["PASS", "REJECT"]
     message: str = ""
+    warning: Optional[str] = None
 
 
 class AdminModerationEventOut(BaseModel):

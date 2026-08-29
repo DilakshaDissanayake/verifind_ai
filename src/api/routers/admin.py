@@ -335,6 +335,7 @@ async def decide_suggestion(
             admin_user_id=UUID(str(app_user_id)),
             decision=body.decision,
             note=body.note,
+            force=body.force,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -343,15 +344,18 @@ async def decide_suggestion(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     approved = body.decision == "PASS"
+    warning = row.get("warning")
+    base_msg = (
+        "Match approved — users can proceed."
+        if approved
+        else "Match rejected — hidden from user feeds."
+    )
     return AdminMatchDecideResponse(
         match_id=match_id,
         admin_status=str(row["admin_status"]),
         decision=body.decision,
-        message=(
-            "Match approved — users can proceed."
-            if approved
-            else "Match rejected — hidden from user feeds."
-        ),
+        message=f"{base_msg} {warning}".strip() if warning else base_msg,
+        warning=warning,
     )
 
 

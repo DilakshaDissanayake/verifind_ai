@@ -55,7 +55,7 @@ class VerifindApp extends StatelessWidget {
       create: (_) => ApiClient(
         baseUrl: const String.fromEnvironment(
           'API_BASE_URL',
-          defaultValue: 'http://192.168.1.4:8000',
+          defaultValue: 'http://192.168.1.7:8000',
         ),
       ),
       child: BlocProvider(
@@ -145,7 +145,6 @@ class _RootGateState extends State<_RootGate> {
         child = const _AuthGate(key: ValueKey('auth'));
         break;
     }
-
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 360),
       switchInCurve: Curves.easeOut,
@@ -302,94 +301,94 @@ class _HomeShellState extends State<_HomeShell> with WidgetsBindingObserver {
               }
             },
             child: Scaffold(
-            extendBody: true,
-            body: Column(
-              children: [
-                if (blocked)
-                  Material(
-                    color: statusColors.danger,
-                    child: SafeArea(
-                      bottom: false,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.sm,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              AppIcons.warningCircle,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            const Expanded(
-                              child: Text(
-                                'Account is blocked. Contact an administrator.',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                  height: 1.3,
+              extendBody: true,
+              body: Column(
+                children: [
+                  if (blocked)
+                    Material(
+                      color: statusColors.danger,
+                      child: SafeArea(
+                        bottom: false,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.sm,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                AppIcons.warningCircle,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              const Expanded(
+                                child: Text(
+                                  'Account is blocked. Contact an administrator.',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                    height: 1.3,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    child: KeyedSubtree(
-                      key: ValueKey(_tab),
-                      child: _pages[_tab],
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      child: KeyedSubtree(
+                        key: ValueKey(_tab),
+                        child: _pages[_tab],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            floatingActionButton: (_tab == 4 || blocked)
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: FloatingActionButton(
-                      heroTag: 'fab_create',
-                      tooltip: 'Report',
-                      onPressed: () {
-                        HapticFeedback.lightImpact();
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => RepositoryProvider.value(
-                              value: context.read<ApiClient>(),
-                              child: BlocProvider.value(
-                                value: ctx.read<AccountStatusCubit>(),
-                                child: const CreateReportPage(),
+                ],
+              ),
+              floatingActionButton: (_tab == 4 || blocked)
+                  ? null
+                  : Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: FloatingActionButton(
+                        heroTag: 'fab_create',
+                        tooltip: 'Report',
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => RepositoryProvider.value(
+                                value: context.read<ApiClient>(),
+                                child: BlocProvider.value(
+                                  value: ctx.read<AccountStatusCubit>(),
+                                  child: const CreateReportPage(),
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
-                      child: Icon(AppIcons.addReport),
+                          );
+                        },
+                        child: Icon(AppIcons.addReport),
+                      ),
                     ),
+              bottomNavigationBar:
+                  BlocBuilder<NotificationsCubit, NotificationsState>(
+                    builder: (bctx, notifState) {
+                      final unread = notifState is NotificationsLoaded
+                          ? notifState.unreadCount
+                          : 0;
+                      final notifCubit = bctx.read<NotificationsCubit>();
+                      final accountCubit = bctx.read<AccountStatusCubit>();
+                      return DockNav(
+                        index: _tab,
+                        unread: unread,
+                        onSelect: (i) =>
+                            _onTabSelected(i, notifCubit, accountCubit),
+                      );
+                    },
                   ),
-            bottomNavigationBar:
-                BlocBuilder<NotificationsCubit, NotificationsState>(
-                  builder: (bctx, notifState) {
-                    final unread = notifState is NotificationsLoaded
-                        ? notifState.unreadCount
-                        : 0;
-                    final notifCubit = bctx.read<NotificationsCubit>();
-                    final accountCubit = bctx.read<AccountStatusCubit>();
-                    return DockNav(
-                      index: _tab,
-                      unread: unread,
-                      onSelect: (i) =>
-                          _onTabSelected(i, notifCubit, accountCubit),
-                    );
-                  },
-                ),
             ),
           );
         },

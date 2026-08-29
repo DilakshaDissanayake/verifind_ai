@@ -40,15 +40,22 @@ match:
   high_threshold: 0.80
   medium_threshold: 0.50
   geo_radius_m: 5000
+  # Skip AI upsert when both reports have known categories with zero overlap
+  require_category_overlap: true
+
+# Ownership verification answer-score thresholds (not fraud risk)
+verify:
+  pass_threshold: 0.60
+  block_threshold: 0.30
 
 fraud:
   claim_velocity_max: 3
   claim_velocity_window_h: 24
   fail_lockout_count: 3
   fail_lockout_h: 24
+  # Composite fraud-gate risk bands (velocity/trust) — distinct from verify.*
   risk_pass: 0.3
   risk_review: 0.7
-  # aliases used by config.py FRAUD dict (same values)
 
 moderation:
   # 3 prohibited post attempts → account auto-blocked; post never created

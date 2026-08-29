@@ -74,6 +74,11 @@ FUSION_WEIGHTS = {
 MATCH_HIGH = float(_nested(PARAMS, "match", "high_threshold", default=0.80))
 MATCH_MEDIUM = float(_nested(PARAMS, "match", "medium_threshold", default=0.50))
 GEO_RADIUS_M = int(_nested(PARAMS, "match", "geo_radius_m", default=5000))
+MATCH_REQUIRE_CATEGORY_OVERLAP = bool(
+    _nested(PARAMS, "match", "require_category_overlap", default=True)
+)
+VERIFY_PASS = float(_nested(PARAMS, "verify", "pass_threshold", default=0.60))
+VERIFY_BLOCK = float(_nested(PARAMS, "verify", "block_threshold", default=0.30))
 FRAUD = {
     "claim_velocity_max": int(_nested(PARAMS, "fraud", "claim_velocity_max", default=3)),
     "claim_velocity_window_h": int(_nested(PARAMS, "fraud", "claim_velocity_window_h", default=24)),

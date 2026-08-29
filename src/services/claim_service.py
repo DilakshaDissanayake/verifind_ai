@@ -238,8 +238,9 @@ async def submit_answers(
     )
 
     decision = result["decision"]
-    overall_score = result["overall_score"]
-    semantic_scores = result["semantic_scores"]
+    overall_score = result.get("overall_score")
+    semantic_scores = result.get("semantic_scores") or []
+    unscored = bool(result.get("unscored"))
 
     # --- Persist to DB ---
     _complete_verification_session(
@@ -253,7 +254,7 @@ async def submit_answers(
     _update_claim_attempt_status(
         attempt_id=claim_attempt_id,
         status=_decision_to_status(decision),
-        fraud_risk=_overall_to_fraud_risk(overall_score),
+        fraud_risk=_overall_to_fraud_risk(overall_score, unscored=unscored),
     )
 
     # --- Update trust_scores ---
@@ -274,16 +275,18 @@ async def submit_answers(
                 )
 
     logger.info(
-        "submit_answers: session={} decision={} overall={:.3f} chat_room={}",
+        "submit_answers: session={} decision={} overall={} unscored={} chat_room={}",
         verification_session_id,
         decision,
         overall_score,
+        unscored,
         chat_room_id,
     )
     return {
         "decision": decision,
         "overall_score": overall_score,
         "semantic_scores": semantic_scores,
+        "unscored": unscored,
         "chat_room_id": chat_room_id,
         "match_id": str(match_id) if match_id else None,
         "claim_attempt_id": str(claim_attempt_id),
@@ -405,8 +408,8 @@ def _complete_verification_session(
     *,
     session_id: UUID,
     answers: list[str],
-    semantic_scores: list[float],
-    overall_score: float,
+    semantic_scores: list,
+    overall_score: Optional[float],
     decision: str,
 ) -> None:
     session = get_session()
@@ -640,9 +643,16 @@ def _decision_to_status(decision: str) -> str:
     return {"PASS": "passed", "REVIEW": "review", "BLOCK": "blocked"}.get(decision, "failed")
 
 
-def _overall_to_fraud_risk(overall_score: float) -> float:
+def _overall_to_fraud_risk(
+    overall_score: Optional[float],
+    *,
+    unscored: bool = False,
+) -> float:
+    # Unscored (stub/no hints) → elevated risk for admin REVIEW
+    if unscored or overall_score is None:
+        return 0.7
     # Invert: high answer score → low fraud risk
-    return round(max(0.0, min(1.0, 1.0 - overall_score)), 4)
+    return round(max(0.0, min(1.0, 1.0 - float(overall_score))), 4)
 
 
 def get_claim_status(claim_attempt_id: UUID) -> Optional[dict]:

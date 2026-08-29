@@ -249,9 +249,14 @@ export async function listSuggestions(): Promise<Suggestion[]> {
 export async function decideMatch(
   matchId: string,
   decision: "PASS" | "REJECT",
-  note?: string
-): Promise<{ admin_status: string; message: string }> {
-  return post(`/api/v1/admin/suggestions/${matchId}/decide`, { decision, note: note || null });
+  note?: string,
+  force = false
+): Promise<{ admin_status: string; message: string; warning?: string | null }> {
+  return post(`/api/v1/admin/suggestions/${matchId}/decide`, {
+    decision,
+    note: note || null,
+    force,
+  });
 }
 
 export async function listModeration(openOnly = true): Promise<ModerationEvent[]> {

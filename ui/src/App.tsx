@@ -178,16 +178,27 @@ export default function App() {
     );
   }
 
-  async function onDecideMatch(id: string, decision: "PASS" | "REJECT") {
+  async function onDecideMatch(s: Suggestion, decision: "PASS" | "REJECT") {
+    const band = (s.band || "").toUpperCase();
+    let force = false;
+    if (decision === "PASS" && band === "LOW") {
+      const ok = window.confirm(
+        `This is a LOW-band match (${Math.round(s.score * 100)}%).\n\n` +
+          `${s.lost_title || "Lost"} ↔ ${s.found_title || "Found"}\n\n` +
+          "Approving may notify users about a false positive. Continue only after checking categories?"
+      );
+      if (!ok) return;
+      force = true;
+    }
     const note = window.prompt(
       decision === "PASS" ? "Optional note for approve:" : "Why reject this match?",
-      decision === "PASS" ? "Approved" : "False positive"
+      decision === "PASS" ? (force ? "Forced LOW approve after category check" : "Approved") : "False positive"
     );
     if (note === null) return;
     await withLoad(
       decision === "PASS" ? "Approving match for users…" : "Rejecting match (hide from feeds)…",
       async () => {
-        const res = await decideMatch(id, decision, note);
+        const res = await decideMatch(s.match_id, decision, note, force);
         flashNotice(res.message);
         await load();
       }
@@ -513,7 +524,7 @@ type PageProps = {
   loading: boolean;
   loadingLabel: string;
   openReview: (id: string) => void;
-  onDecideMatch: (id: string, d: "PASS" | "REJECT") => void;
+  onDecideMatch: (s: Suggestion, d: "PASS" | "REJECT") => void;
   onBlockUser: (u: AdminUser, currentlyActive: boolean) => void;
   onRevealContact: (userId: string) => void;
   onResolveReport: (id: string, action: "approve" | "quarantine" | "remove") => void;
@@ -980,7 +991,7 @@ function SuggestionTable({
 }: {
   rows: Suggestion[];
   busy: boolean;
-  onDecide: (id: string, d: "PASS" | "REJECT") => void;
+  onDecide: (s: Suggestion, d: "PASS" | "REJECT") => void;
 }) {
   return (
     <div className={`surface-panel table-panel${busy ? " dimmed" : ""}`}>
@@ -997,10 +1008,10 @@ function SuggestionTable({
           <div className="row-actions">
             {s.admin_status === "pending" ? (
               <>
-                <button className="mini-button ok" disabled={busy} onClick={() => onDecide(s.match_id, "PASS")}>
+                <button className="mini-button ok" disabled={busy} onClick={() => onDecide(s, "PASS")}>
                   Pass
                 </button>
-                <button className="mini-button danger" disabled={busy} onClick={() => onDecide(s.match_id, "REJECT")}>
+                <button className="mini-button danger" disabled={busy} onClick={() => onDecide(s, "REJECT")}>
                   Reject
                 </button>
               </>

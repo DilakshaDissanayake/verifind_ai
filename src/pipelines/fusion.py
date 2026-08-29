@@ -93,23 +93,45 @@ def geo_score_from_distance(distance_m: float, radius_m: float = 5000.0) -> floa
     return round(1.0 - distance_m / radius_m, 6)
 
 
+_KNOWN_CATEGORIES = {
+    "electronics",
+    "bag",
+    "wallet",
+    "keys",
+    "clothing",
+    "jewelry",
+    "document",
+}
+
+
+def parse_categories(value: Optional[str]) -> set[str]:
+    """Extract category tokens from a free-text / comma category field."""
+    if not value:
+        return set()
+    categories: set[str] = set()
+    for part in value.replace("|", ",").replace("/", ",").split(","):
+        words = re.findall(r"[a-z0-9]+", part.strip().lower())
+        if len(words) == 1:
+            categories.add(words[0])
+        categories.update(word for word in words if word in _KNOWN_CATEGORIES)
+    categories.discard("other")
+    return categories
+
+
 def category_match_score(cat_a: Optional[str], cat_b: Optional[str]) -> float:
     """Score shared categories; plain ``other`` is an unknown fallback."""
     if not cat_a or not cat_b:
         return 0.0
+    return 1.0 if parse_categories(cat_a) & parse_categories(cat_b) else 0.0
 
-    def _categories(value: str) -> set[str]:
-        known = {
-            "electronics", "bag", "wallet", "keys", "clothing",
-            "jewelry", "document",
-        }
-        categories: set[str] = set()
-        for part in value.replace("|", ",").replace("/", ",").split(","):
-            words = re.findall(r"[a-z0-9]+", part.strip().lower())
-            if len(words) == 1:
-                categories.add(words[0])
-            categories.update(word for word in words if word in known)
-        categories.discard("other")
-        return categories
 
-    return 1.0 if _categories(cat_a) & _categories(cat_b) else 0.0
+def categories_conflict(cat_a: Optional[str], cat_b: Optional[str]) -> bool:
+    """True when both sides have *known* taxonomy categories with zero overlap.
+
+    Unknown / empty / ``other`` / free-text-only labels do not force a conflict.
+    """
+    a = parse_categories(cat_a) & _KNOWN_CATEGORIES
+    b = parse_categories(cat_b) & _KNOWN_CATEGORIES
+    if not a or not b:
+        return False
+    return len(a & b) == 0

@@ -15,9 +15,17 @@ from uuid import UUID
 from loguru import logger
 from sqlalchemy import text
 
-from infrastructure.config import FRAUD, FUSION_WEIGHTS, GEO_RADIUS_M, MATCH_HIGH, MATCH_MEDIUM
+from infrastructure.config import (
+    FRAUD,
+    FUSION_WEIGHTS,
+    GEO_RADIUS_M,
+    MATCH_HIGH,
+    MATCH_MEDIUM,
+    MATCH_REQUIRE_CATEGORY_OVERLAP,
+)
 from infrastructure.db.sql_client import get_session
 from pipelines.fusion import (
+    categories_conflict,
     category_match_score,
     compute_fusion_score,
     cosine_similarity,
@@ -315,7 +323,19 @@ def compute_match_scores(
         if src_emb and cand.embedding:
             text_s = cosine_similarity(src_emb, cand.embedding)
 
-        cat_s = category_match_score(src_cat, cand.category or cand.ai_category)
+        cand_cat = cand.category or cand.ai_category
+        cat_s = category_match_score(src_cat, cand_cat)
+
+        # Hard-skip known category mismatches (e.g. electronics ↔ bag)
+        if MATCH_REQUIRE_CATEGORY_OVERLAP and categories_conflict(src_cat, cand_cat):
+            logger.debug(
+                "compute_match_scores: skip category conflict source={} cand={} {}↔{}",
+                source_id,
+                cand.report_id,
+                src_cat,
+                cand_cat,
+            )
+            continue
 
         cand_vision = _fetch_vision_features(cand.report_id)
         vis_s = float(cand.vision_score_hint) if cand.vision_score_hint is not None else vision_similarity(
