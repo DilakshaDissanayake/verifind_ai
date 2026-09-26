@@ -109,8 +109,8 @@ Unlike conventional lost and found bulletin boards that expose raw photos and un
 
 ### 1. Clone & Set Environment Variables
 ```bash
-git clone https://github.com/your-username/verifind-ai.git
-cd verifind-ai
+git clone https://github.com/DilakshaDissanayake/verifind_ai.git
+cd verifind_ai
 
 make env
 # Fill SUPABASE_* / OPENAI_* — then harden for prod: AUTH_DEV_BYPASS=false, API_RELOAD=false
